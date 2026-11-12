@@ -162,33 +162,81 @@ app.use((req, res, next) => {
     });
   };
 
-     // Auth - Login
-     app.post('/api/auth/login', async (req, res) => {
-       const { email, password } = req.body;
-       try {
-         const supabase = getSupabase();
-         const { data: user, error } = await supabase
-           .from('users')
-           .select('*')
-           .eq('email', email)
-           .single();
-         
-         if (error || !user) {
-           if (error) {
-             console.error('[Supabase Error in Login]:', error.message || error);
-           } else {
-             console.warn('[Login Failure]: No user found with provided email.');
-           }
-           return res.status(401).json({ error: 'Invalid credentials' });
-         }
-         
-         const passwordMatch = await bcrypt.compare(password, user.password);
-         if (!passwordMatch) {
-           console.warn('[Login Failure]: Password mismatch for email:', email);
-           return res.status(401).json({ error: 'Invalid credentials' });
-         }
+  // Auth - Login
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+      const supabase = getSupabase();
+
+      // 1. Authenticate with Supabase Auth (supports users whose passwords were reset via Supabase Auth)
+      let authUser: any = null;
+      try {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (!authError && authData?.user) {
+          authUser = authData.user;
+        }
+      } catch (authErr) {
+        console.warn('[Login] Supabase Auth sign-in attempt notice:', authErr);
+      }
+
+      // 2. Fetch profile from public.users table
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
       
-      if (!user.is_approved && !user.is_admin) {
+      if (!user && !authUser) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      let passwordValid = false;
+
+      if (authUser) {
+        // Authenticated with Supabase Auth! Sync hashed password to public.users table
+        passwordValid = true;
+        try {
+          const hashedPassword = await bcrypt.hash(password, 10);
+          await supabase.from('users').update({ password: hashedPassword }).eq('email', email);
+          console.log(`[Login] Synced new bcrypt password for ${email}`);
+        } catch (syncErr) {
+          console.warn('[Login] Password sync notice:', syncErr);
+        }
+      } else if (user) {
+        // Fallback: check bcrypt or legacy plaintext in public.users table
+        try {
+          if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
+            passwordValid = await bcrypt.compare(password, user.password);
+          } else {
+            passwordValid = (password === user.password);
+            if (passwordValid) {
+              const hashedPassword = await bcrypt.hash(password, 10);
+              await supabase.from('users').update({ password: hashedPassword }).eq('email', email);
+            }
+          }
+        } catch (cmpErr) {
+          passwordValid = (password === user.password);
+        }
+      }
+
+      if (!passwordValid) {
+        console.warn('[Login Failure]: Password mismatch for email:', email);
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const activeUser = user || {
+        id: authUser.id,
+        email: authUser.email,
+        name: authUser.user_metadata?.name || email.split('@')[0],
+        is_approved: true,
+        is_admin: false,
+        is_super_admin: false,
+      };
+
+      if (!activeUser.is_approved && !activeUser.is_admin) {
         return res.status(403).json({ 
           error: 'Access Revoked', 
           message: 'Your access to the DLCF E-Library has been revoked by the administrator. Please contact the admin team if you believe this is an error.' 
@@ -196,16 +244,17 @@ app.use((req, res, next) => {
       }
 
       // Send login notification (async)
-      sendLoginNotification(user.email, user.name);
+      sendLoginNotification(activeUser.email, activeUser.name);
 
       res.json({ user: { 
-        id: user.id, 
-        email: user.email, 
-        name: user.name, 
-        isAdmin: !!user.is_admin,
-        isSuperAdmin: !!user.is_super_admin
+        id: activeUser.id, 
+        email: activeUser.email, 
+        name: activeUser.name, 
+        isAdmin: !!activeUser.is_admin,
+        isSuperAdmin: !!activeUser.is_super_admin
       } });
     } catch (err: any) {
+      console.error('[Login Error]:', err);
       res.status(500).json({ error: err.message });
     }
   });

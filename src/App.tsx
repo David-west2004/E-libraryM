@@ -429,10 +429,12 @@ export default function App() {
 
     setLoading(true);
     try {
-      // 1. Get access token from URL hash or session
+      // 1. Get access token and email from URL hash or current session
       const hash = window.location.hash || '';
       const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
-      const accessToken = hashParams.get('access_token') || (await supabase.auth.getSession()).data.session?.access_token || '';
+      const session = (await supabase.auth.getSession()).data.session;
+      const accessToken = hashParams.get('access_token') || session?.access_token || '';
+      const sessionEmail = session?.user?.email || '';
 
       // 2. Call Supabase Auth client to update password
       let clientUpdated = false;
@@ -450,6 +452,7 @@ export default function App() {
         body: JSON.stringify({
           password,
           accessToken,
+          email: sessionEmail,
         }),
       });
 
