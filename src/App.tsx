@@ -388,28 +388,20 @@ export default function App() {
       const redirectUrl = getResetPasswordRedirectUrl();
       console.log(`[Supabase Auth] Requesting reset for ${email} with redirect: ${redirectUrl}`);
 
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: redirectUrl,
+      // Call /api/auth/forgot-password (uses server-side Supabase client for reliable auth email dispatch)
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, redirectTo: redirectUrl }),
       });
 
-      if (error) {
-        console.warn('[Supabase Auth] resetPasswordForEmail error, attempting fallback:', error.message);
-        // Fallback to backend route if available
-        const res = await fetch('/api/auth/forgot-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(data.message || 'Password recovery email sent!');
-          setView('login');
-        } else {
-          showToast(error.message || data.message || 'Failed to send recovery email', 'error');
-        }
-      } else {
-        showToast('Password recovery email sent! Check your inbox.');
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast(data.message || 'Password recovery email sent! Check your inbox.');
         setView('login');
+      } else {
+        showToast(data.error || 'Failed to send recovery email', 'error');
       }
     } catch (err: any) {
       console.error('[Supabase Auth] Forgot password exception:', err);
@@ -437,39 +429,41 @@ export default function App() {
 
     setLoading(true);
     try {
-      // 1. Call Supabase Auth to update password for the current recovery session
-      const { data, error } = await supabase.auth.updateUser({
-        password: password,
+      // 1. Get access token from URL hash or session
+      const hash = window.location.hash || '';
+      const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+      const accessToken = hashParams.get('access_token') || (await supabase.auth.getSession()).data.session?.access_token || '';
+
+      // 2. Call Supabase Auth client to update password
+      let clientUpdated = false;
+      try {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (!error) clientUpdated = true;
+      } catch (clientErr) {
+        console.warn('[Supabase Auth] Client update notice:', clientErr);
+      }
+
+      // 3. Sync hashed password to database
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password,
+          accessToken,
+        }),
       });
 
-      if (error) {
-        console.error('[Supabase Auth] Update password error:', error);
-        showToast(error.message || 'Failed to update password', 'error');
-      } else {
-        // 2. Sync to custom users table if email is present
-        if (data?.user?.email) {
-          try {
-            await fetch('/api/user/profile', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                userId: data.user.id,
-                email: data.user.email,
-                password: password,
-              }),
-            });
-          } catch (syncErr) {
-            console.warn('[Supabase Auth] Profile sync skipped:', syncErr);
-          }
-        }
+      const data = await res.json();
 
+      if (res.ok || clientUpdated) {
         showToast('Password updated successfully! Please log in.');
-        // Clean up URL hash so refreshing doesn't re-trigger recovery
         if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
           window.history.replaceState(null, '', window.location.pathname);
         }
         setShowPassword(false);
         setView('login');
+      } else {
+        showToast(data.error || 'Failed to update password', 'error');
       }
     } catch (err: any) {
       console.error('[Supabase Auth] Update password exception:', err);

@@ -269,63 +269,83 @@ app.use((req, res, next) => {
     }
   });
 
+  // Client Auth Configuration endpoint
+  app.get('/api/auth/config', (req, res) => {
+    res.json({
+      supabaseUrl: process.env.SUPABASE_URL || '',
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
+    });
+  });
+
+  // Supabase Auth Password Reset Request
   app.post('/api/auth/forgot-password', async (req, res) => {
-    const { email } = req.body;
+    const { email, redirectTo } = req.body;
     console.log(`[Auth] Forgot password request for: ${email}`);
+    if (!email) {
+      return res.status(400).json({ error: 'Email address is required' });
+    }
+
     try {
       const supabase = getSupabase();
-      const { data: user, error } = await supabase
-        .from('users')
-        .select('name, password')
-        .eq('email', email)
-        .single();
-      
-      if (error || !user) {
-        console.warn(`[Auth] Forgot password: Email not found (${email})`);
-        return res.status(404).json({ error: 'Email not found', message: 'No account was found with this email address. Please check and try again.' });
+      const hostOrigin = req.headers.origin || 'https://dlcf-el.nxrlabz.com.ng';
+      const targetRedirect = redirectTo || `${hostOrigin}/#reset-password`;
+      console.log(`[Auth] Requesting resetPasswordForEmail via Supabase Auth for ${email} with redirect: ${targetRedirect}`);
+
+      const { error: supabaseError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: targetRedirect,
+      });
+
+      if (supabaseError) {
+        console.error('[Auth] Supabase resetPasswordForEmail error:', supabaseError.message);
+        return res.status(400).json({ error: supabaseError.message || 'Could not send recovery email' });
       }
 
-      if (!process.env.SMTP_HOST) {
-        console.error('[Auth] SMTP_HOST is not configured');
-        return res.status(500).json({ error: 'Email service not configured', message: 'The email service is not configured. Please contact the administrator to retrieve your password.' });
-      }
-
-      console.log(`[Auth] Attempting to send recovery email to: ${email} via ${process.env.SMTP_HOST}`);
-      const transporter = getTransporter();
-      
-      try {
-        await transporter.sendMail({
-          from: `"DLCF E-Library" <${process.env.SMTP_USER}>`,
-          to: email,
-          subject: 'Password Recovery - DLCF E-Library',
-          html: `
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-              <h2 style="color: #059669;">Password Recovery</h2>
-              <p>Hello <strong>${user.name}</strong>,</p>
-              <p>You requested to recover your password for the DLCF E-Library.</p>
-              <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
-                <p style="margin: 0; font-size: 14px; color: #64748b;">Your Password:</p>
-                <p style="margin: 5px 0 0 0; font-family: monospace; font-size: 18px; font-bold; color: #1e293b;">${user.password}</p>
-              </div>
-              <p style="font-size: 12px; color: #94a3b8;">If you didn't request this, please change your password immediately or contact an admin.</p>
-              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
-                <p style="font-size: 14px; color: #64748b;">Best regards,<br>DLCF Admin Team</p>
-              </div>
-            </div>
-          `
-        });
-        console.log(`[Auth] Recovery email sent successfully to: ${email}`);
-        res.json({ success: true, message: 'Your password has been sent to your email address.' });
-      } catch (mailErr: any) {
-        console.error(`[Auth] Mail delivery failed for ${email}:`, mailErr.message);
-        res.status(500).json({ 
-          error: 'Email delivery failed', 
-          message: `We couldn't send the email. Technical error: ${mailErr.message}. Please contact the admin.` 
-        });
-      }
+      console.log(`[Auth] Recovery email sent successfully via Supabase Auth to: ${email}`);
+      return res.json({ 
+        success: true, 
+        message: 'Password recovery email sent! Please check your email inbox.' 
+      });
     } catch (err: any) {
       console.error(`[Auth] Forgot password exception for ${email}:`, err);
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message || 'Server error processing password recovery' });
+    }
+  });
+
+  // Password Reset Completion (Synchronizes hashed password to database)
+  app.post('/api/auth/reset-password', async (req, res) => {
+    const { email, password, accessToken } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    try {
+      const supabase = getSupabase();
+      let targetEmail = email;
+
+      if (accessToken) {
+        try {
+          const { data: authData } = await supabase.auth.getUser(accessToken);
+          if (authData?.user?.email) {
+            targetEmail = authData.user.email;
+          }
+        } catch (e) {
+          console.warn('[Auth] Token verification note:', e);
+        }
+      }
+
+      if (targetEmail) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await supabase
+          .from('users')
+          .update({ password: hashedPassword })
+          .eq('email', targetEmail);
+        console.log(`[Auth] Synchronized new password for user: ${targetEmail}`);
+      }
+
+      res.json({ success: true, message: 'Password updated successfully' });
+    } catch (err: any) {
+      console.error('[Auth] Reset password completion error:', err);
+      res.status(500).json({ error: err.message || 'Error updating password' });
     }
   });
 
