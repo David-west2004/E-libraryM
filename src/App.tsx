@@ -32,196 +32,21 @@ import {
   ShieldAlert,
   Info,
   Edit,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { Book, BookCategory, FilterState, User, RegistrationLink } from './types';
 import { INITIAL_BOOKS, DEPARTMENTS, LEVELS } from './constants';
-
-// Initialize Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
-// Slideshow Images
-import slide1 from '../assets/20260611_193907.jpg';
-import slide2 from '../assets/20260611_200000.jpg';
-import slide3 from '../assets/InShot_20260614_104539506.jpg';
-import slide4 from '../assets/InShot_20260614_104633849.jpg';
-import slide5 from '../assets/InShot_20260622_200418401.jpg';
-import dlcfLogo from '../assets/dlcf.jpeg';
-
-const SLIDES = [
-  {
-    image: slide1,
-    title: "Access Academic Excellence",
-    description: "Explore a vast collection of academic books, lecture notes, and resources tailored for campus success."
-  },
-  {
-    image: slide2,
-    title: "Spiritual Growth & Guidance",
-    description: "Nurture your faith with spiritual books, messages, and publications readily available at your fingertips."
-  },
-  {
-    image: slide3,
-    title: "Past Questions Repository",
-    description: "Prepare thoroughly with organized past questions and solutions from various departments and levels."
-  },
-  {
-    image: slide4,
-    title: "Seamless Digital Reading",
-    description: "Read, study, and reference your books anytime, anywhere, with our fast and responsive reader."
-  },
-  {
-    image: slide5,
-    title: "Connect & Grow",
-    description: "Join the DLCF community in pursuing academic distinction and spiritual integrity."
-  }
-];
-
-function AuthSlideshow({ 
-  showText = true, 
-  onContinue 
-}: { 
-  showText?: boolean; 
-  onContinue?: () => void; 
-}) {
-  const [current, setCurrent] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % SLIDES.length);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="relative w-full h-full overflow-hidden flex flex-col justify-end p-6 sm:p-10 md:p-12 text-white">
-      {/* Background Slides */}
-      <div className="absolute inset-0 z-0">
-        <AnimatePresence mode="wait">
-          <motion.img
-            key={current}
-            src={SLIDES[current].image}
-            initial={{ opacity: 0, scale: 1.05 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 1.2, ease: "easeInOut" }}
-            className="absolute inset-0 w-full h-full object-cover animate-fade-in"
-            alt="Slideshow Background"
-          />
-        </AnimatePresence>
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-900/40 to-slate-950/20" />
-      </div>
-
-      {showText && (
-        <>
-          {/* Slide Text Content */}
-          <div className="relative z-10 max-w-lg mb-8">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={current}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-              >
-                <span className="inline-block bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
-                  DLCF E-Library
-                </span>
-                <h2 className="text-3xl font-extrabold md:text-4xl leading-tight mb-4 tracking-tight drop-shadow-md">
-                  {SLIDES[current].title}
-                </h2>
-                <p className="text-slate-200 text-sm md:text-base leading-relaxed drop-shadow-xs">
-                  {SLIDES[current].description}
-                </p>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          {/* Slide Indicators & Continue Container */}
-          <div className="relative z-10 flex flex-col gap-6">
-            {/* Slide Indicators */}
-            <div className="flex gap-2">
-              {SLIDES.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrent(index)}
-                  className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
-                    index === current ? 'w-8 bg-emerald-50' : 'w-2.5 bg-white/40 hover:bg-white/60'
-                  }`}
-                  aria-label={`Go to slide ${index + 1}`}
-                />
-              ))}
-            </div>
-
-            {/* Continue Button for Mobile */}
-            {onContinue && (
-              <button
-                onClick={onContinue}
-                className="w-full sm:max-w-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2 group transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-wider"
-              >
-                <span>Continue</span>
-                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-interface AuthLayoutProps {
-  children: React.ReactNode;
-  showMobileAuth: boolean;
-  onContinueMobile: () => void;
-}
-
-function AuthLayout({ children, showMobileAuth, onContinueMobile }: AuthLayoutProps) {
-
-  return (
-    <div className="min-h-screen relative overflow-hidden bg-slate-950 flex flex-col md:grid md:grid-cols-12">
-      {/* Left Column: Full-height slideshow for screens md and up */}
-      <div className="hidden md:block md:col-span-7 lg:col-span-8 relative overflow-hidden h-screen">
-        <AuthSlideshow showText={true} />
-      </div>
-
-      {/* Right Column: Centered form container */}
-      <div className="col-span-12 md:col-span-5 lg:col-span-4 relative flex items-center justify-center p-4 sm:p-8 md:p-12 min-h-screen bg-slate-950 md:bg-slate-900/40 border-l border-slate-800/30">
-        {/* On mobile (<md), render the slideshow as background with text/indicators based on showMobileAuth */}
-        <div className="absolute inset-0 z-0 md:hidden">
-          <AuthSlideshow showText={!showMobileAuth} onContinue={onContinueMobile} />
-          {showMobileAuth && (
-            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[2px]" />
-          )}
-        </div>
-
-        {/* Form content container */}
-        <div className={`relative z-10 w-full max-w-md ${showMobileAuth ? 'block' : 'hidden md:block'}`}>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile'>('login');
+  const [view, setView] = useState<'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile' | 'reset-password'>('login');
   const [regToken, setRegToken] = useState<string | null>(null);
-  const [tokenVerifying, setTokenVerifying] = useState(false);
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [showMobileAuth, setShowMobileAuth] = useState(() => {
-    return localStorage.getItem('dlcf_slideshow_seen') === 'true';
-  });
   
   // Library State
   const [books, setBooks] = useState<Book[]>([]);
@@ -255,6 +80,7 @@ export default function App() {
   const [massUploadCategory, setMassUploadCategory] = useState<BookCategory>(BookCategory.ACADEMIC);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [syncingStorage, setSyncingStorage] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -348,47 +174,49 @@ export default function App() {
 
   // Check for registration token in URL
   useEffect(() => {
-    const checkToken = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const token = params.get('token');
-      if (token) {
-        setTokenVerifying(true);
-        setTokenError(null);
-        try {
-          const { data: isValid, error } = await supabase.rpc('verify_registration_token', { lookup_token: token });
-          if (error || !isValid) {
-            console.error('Token verification error:', error);
-            const errMsg = 'Invalid or expired registration link. Please contact your DLCF admin.';
-            setTokenError(errMsg);
-            showToast(errMsg, 'error');
-            setView('login');
-            // Clean up url query param so user doesn't get stuck
-            window.history.replaceState({}, '', window.location.pathname);
-          } else {
-            setRegToken(token);
-            setView('register');
-          }
-        } catch (err) {
-          console.error('Error verifying token:', err);
-          setTokenError('Failed to verify registration link.');
-          setView('login');
-          window.history.replaceState({}, '', window.location.pathname);
-        } finally {
-          setTokenVerifying(false);
-        }
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      setRegToken(token);
+      setView('register');
+    }
+  }, []);
+
+  // Listen for Supabase Auth PASSWORD_RECOVERY and capture recovery token from URL hash/query
+  useEffect(() => {
+    // 1. Supabase Auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[Supabase Auth Event]:', event);
+      if (event === 'PASSWORD_RECOVERY') {
+        setView('reset-password');
+        showToast('Password recovery detected. Please enter your new password.');
       }
+    });
+
+    // 2. Fallback check for URL hash / query parameters (e.g. #access_token=...&type=recovery or ?type=recovery)
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+    const searchParams = new URLSearchParams(search);
+
+    const isRecovery =
+      hashParams.get('type') === 'recovery' ||
+      searchParams.get('type') === 'recovery' ||
+      hash.includes('type=recovery') ||
+      hash.includes('reset-password') ||
+      searchParams.get('view') === 'reset-password';
+
+    if (isRecovery) {
+      setView('reset-password');
+    }
+
+    return () => {
+      subscription.unsubscribe();
     };
-    checkToken();
   }, []);
 
   // Restore session from localStorage on mount
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('token')) {
-      // If visiting a registration link, do not restore the existing session to avoid redirecting
-      return;
-    }
-
     const savedUser = localStorage.getItem('dlcf_user');
     if (savedUser) {
       try {
@@ -406,64 +234,21 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+    const email = formData.get('email');
+    const password = formData.get('password');
 
-    setLoading(true);
     try {
-      // 1. Try logging in via standard Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (!authError && authData.user) {
-        // Fetch user profile details from public.users table (allowed via RLS select policy auth.uid() = id)
-        const { data: userProfile, error: profileError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authData.user.id)
-          .single();
-
-        if (profileError || !userProfile) {
-          console.error('Failed to retrieve user profile:', profileError);
-          showToast('Could not retrieve user profile.', 'error');
-          await supabase.auth.signOut();
-          return;
-        }
-
-        // Verify approval status
-        if (!userProfile.is_approved && !userProfile.is_admin) {
-          await supabase.auth.signOut();
-          setRevokedModal({ 
-            message: 'Your access to the DLCF E-Library has been revoked by the administrator. Please contact the admin team if you believe this is an error.' 
-          });
-          return;
-        }
-
-        const loggedUser = {
-          id: userProfile.id,
-          email: userProfile.email,
-          name: userProfile.name,
-          isAdmin: !!userProfile.is_admin,
-          isSuperAdmin: !!userProfile.is_super_admin
-        };
-
-        setUser(loggedUser);
-        localStorage.setItem('dlcf_user', JSON.stringify(loggedUser));
-        setView(loggedUser.isAdmin ? 'admin' : 'library');
-        showToast(`Welcome back, ${loggedUser.name}!`);
-        return;
-      }
-
-      // 2. Fallback to Express backend login endpoint (for pre-migration/legacy users)
-      console.log('Standard Supabase Auth failed or profile missing. Trying legacy fallback...');
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
       
+      if (res.status === 404) {
+        showToast('Login API not found. Please ensure the server is running correctly.', 'error');
+        return;
+      }
+
       const data = await res.json();
       if (res.ok) {
         setUser(data.user);
@@ -474,73 +259,40 @@ export default function App() {
         if (res.status === 403 && data.error === 'Access Revoked') {
           setRevokedModal({ message: data.message });
         } else {
-          showToast(data.error || authError?.message || 'Login failed', 'error');
+          showToast(data.error || 'Login failed', 'error');
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Login error:', err);
-      showToast(err.message || 'Login failed', 'error');
-    } finally {
-      setLoading(false);
+      showToast('Could not connect to the server. Please wait a moment and try again.', 'error');
     }
   };
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-    const name = formData.get('name') as string;
+    const email = formData.get('email');
+    const password = formData.get('password');
+    const name = formData.get('name');
 
-    setLoading(true);
     try {
-      // 1. Sign up user via standard Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name, token: regToken }),
       });
-
-      if (authError) {
-        showToast(authError.message, 'error');
-        return;
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Registration successful! Please wait for admin approval.');
+        setView('login');
+        setShowPassword(false);
+        setRegToken(null);
+        window.history.replaceState({}, '', window.location.pathname);
+      } else {
+        showToast(data.error, 'error');
       }
-
-      if (!authData.user) {
-        showToast('Registration failed - no user returned', 'error');
-        return;
-      }
-
-      // 2. Hash the password to satisfy the public.users NOT NULL database constraint
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // 3. Insert profile record into public.users table (allowed via RLS insert policy)
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert([{
-          id: authData.user.id,
-          email,
-          password: hashedPassword,
-          name,
-          is_approved: true, // Keep original auto-approved behavior
-          is_admin: false
-        }]);
-
-      if (insertError) {
-        console.error('Failed to create user profile in DB:', insertError.message);
-        showToast('Profile creation failed: ' + insertError.message, 'error');
-        return;
-      }
-
-      showToast('Registration successful! Please sign in.');
-      setView('login');
-      setShowPassword(false);
-      setRegToken(null);
-      window.history.replaceState({}, '', window.location.pathname);
-    } catch (err: any) {
-      console.error('Registration error:', err);
-      showToast(err.message || 'Registration failed', 'error');
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      showToast('Registration failed', 'error');
     }
   };
 
@@ -549,9 +301,6 @@ export default function App() {
     setLoading(true);
     
     try {
-      // Sign out from Supabase Auth
-      await supabase.auth.signOut();
-
       // Call server to invalidate session
       if (user) {
         const response = await fetch('/api/auth/logout', {
@@ -627,24 +376,104 @@ export default function App() {
   const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email');
+    const email = (formData.get('email') as string)?.trim();
+
+    if (!email) {
+      showToast('Please enter your email address', 'error');
+      return;
+    }
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+      const redirectUrl = getResetPasswordRedirectUrl();
+      console.log(`[Supabase Auth] Requesting reset for ${email} with redirect: ${redirectUrl}`);
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl,
       });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || 'Password recovery email sent!');
-        setView('login');
+
+      if (error) {
+        console.warn('[Supabase Auth] resetPasswordForEmail error, attempting fallback:', error.message);
+        // Fallback to backend route if available
+        const res = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || 'Password recovery email sent!');
+          setView('login');
+        } else {
+          showToast(error.message || data.message || 'Failed to send recovery email', 'error');
+        }
       } else {
-        showToast(data.message || data.error || 'Failed to process request', 'error');
+        showToast('Password recovery email sent! Check your inbox.');
+        setView('login');
       }
-    } catch (err) {
-      showToast('Connection error', 'error');
+    } catch (err: any) {
+      console.error('[Supabase Auth] Forgot password exception:', err);
+      showToast(err.message || 'Connection error. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const password = formData.get('password') as string;
+    const confirmPassword = formData.get('confirmPassword') as string;
+
+    if (!password || password.length < 6) {
+      showToast('Password must be at least 6 characters long', 'error');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. Call Supabase Auth to update password for the current recovery session
+      const { data, error } = await supabase.auth.updateUser({
+        password: password,
+      });
+
+      if (error) {
+        console.error('[Supabase Auth] Update password error:', error);
+        showToast(error.message || 'Failed to update password', 'error');
+      } else {
+        // 2. Sync to custom users table if email is present
+        if (data?.user?.email) {
+          try {
+            await fetch('/api/user/profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: data.user.id,
+                email: data.user.email,
+                password: password,
+              }),
+            });
+          } catch (syncErr) {
+            console.warn('[Supabase Auth] Profile sync skipped:', syncErr);
+          }
+        }
+
+        showToast('Password updated successfully! Please log in.');
+        // Clean up URL hash so refreshing doesn't re-trigger recovery
+        if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+        setShowPassword(false);
+        setView('login');
+      }
+    } catch (err: any) {
+      console.error('[Supabase Auth] Update password exception:', err);
+      showToast(err.message || 'Failed to update password', 'error');
     } finally {
       setLoading(false);
     }
@@ -687,19 +516,23 @@ export default function App() {
       message: 'Are you sure you want to revoke your own administrative rights? You will become a standard user and lose access to this dashboard.',
       action: async () => {
         try {
-          const { error } = await supabase
-            .from('users')
-            .update({ is_admin: false, is_super_admin: false })
-            .eq('id', user?.id);
-          if (error) throw error;
-
-          const updatedUser = { ...user!, isAdmin: false, isSuperAdmin: false };
-          setUser(updatedUser);
-          localStorage.setItem('dlcf_user', JSON.stringify(updatedUser));
-          showToast('Admin rights revoked successfully');
-          setView('library');
-        } catch (err: any) {
-          showToast(err.message || 'Failed to revoke admin rights', 'error');
+          const res = await fetch('/api/admin/demote-self', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user?.id }),
+          });
+          if (res.ok) {
+            const updatedUser = { ...user!, isAdmin: false, isSuperAdmin: false };
+            setUser(updatedUser);
+            localStorage.setItem('dlcf_user', JSON.stringify(updatedUser));
+            showToast('Admin rights revoked successfully');
+            setView('library');
+          } else {
+            const data = await res.json();
+            showToast(data.error || 'Failed to revoke admin rights', 'error');
+          }
+        } catch (err) {
+          showToast('Connection error', 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -715,16 +548,20 @@ export default function App() {
       message: `Are you sure you want to promote ${userName} to an Administrator? They will have full access to manage the library.`,
       action: async () => {
         try {
-          const { error } = await supabase
-            .from('users')
-            .update({ is_admin: true, is_approved: true })
-            .eq('id', userId);
-          if (error) throw error;
-
-          showToast(`${userName} has been promoted to Admin`);
-          fetchAdminData();
-        } catch (err: any) {
-          showToast(err.message || 'Failed to promote user', 'error');
+          const res = await fetch('/api/admin/promote-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, requesterId: user?.id }),
+          });
+          if (res.ok) {
+            showToast(`${userName} has been promoted to Admin`);
+            fetchAdminData();
+          } else {
+            const data = await res.json();
+            showToast(data.error || 'Failed to promote user', 'error');
+          }
+        } catch (err) {
+          showToast('Connection error', 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -740,16 +577,20 @@ export default function App() {
       message: `Are you sure you want to revoke administrative rights from ${userName}? Only Superadmins can perform this action.`,
       action: async () => {
         try {
-          const { error } = await supabase
-            .from('users')
-            .update({ is_admin: false, is_super_admin: false })
-            .eq('id', userId);
-          if (error) throw error;
-
-          showToast(`${userName} is no longer an Admin`);
-          fetchAdminData();
-        } catch (err: any) {
-          showToast(err.message || 'Failed to demote admin', 'error');
+          const res = await fetch('/api/admin/demote-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, requesterId: user?.id }),
+          });
+          if (res.ok) {
+            showToast(`${userName} is no longer an Admin`);
+            fetchAdminData();
+          } else {
+            const data = await res.json();
+            showToast(data.error || 'Failed to demote admin', 'error');
+          }
+        } catch (err) {
+          showToast('Connection error', 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -765,16 +606,20 @@ export default function App() {
       message: `Are you sure you want to promote ${userName} to a Super Administrator? They will have the highest level of control, including the ability to manage other administrators.`,
       action: async () => {
         try {
-          const { error } = await supabase
-            .from('users')
-            .update({ is_super_admin: true, is_admin: true, is_approved: true })
-            .eq('id', userId);
-          if (error) throw error;
-
-          showToast(`${userName} has been promoted to Super Admin`);
-          fetchAdminData();
-        } catch (err: any) {
-          showToast(err.message || 'Failed to promote to Super Admin', 'error');
+          const res = await fetch('/api/admin/promote-superadmin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, requesterId: user?.id }),
+          });
+          if (res.ok) {
+            showToast(`${userName} has been promoted to Super Admin`);
+            fetchAdminData();
+          } else {
+            const data = await res.json();
+            showToast(data.error || 'Failed to promote to Super Admin', 'error');
+          }
+        } catch (err) {
+          showToast('Connection error', 'error');
         } finally {
           setConfirmModal(null);
         }
@@ -787,37 +632,25 @@ export default function App() {
     
     // Refresh user session to pick up superadmin status changes
     try {
-      const { data: dbUser, error: dbErr } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-        
-      if (!dbErr && dbUser) {
-        const updatedUser = {
-          id: dbUser.id,
-          email: dbUser.email,
-          name: dbUser.name,
-          isAdmin: !!dbUser.is_admin,
-          isSuperAdmin: !!dbUser.is_super_admin
-        };
-        setUser(updatedUser);
-        localStorage.setItem('dlcf_user', JSON.stringify(updatedUser));
+      const meRes = await fetch(`/api/auth/me?userId=${user.id}`);
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        setUser(meData.user);
+        localStorage.setItem('dlcf_user', JSON.stringify(meData.user));
       }
     } catch (err) {
       console.error('Failed to refresh session:', err);
     }
 
     try {
-      // Fetch users and links directly from Supabase, books via public Express API
-      const [usersResult, linksResult, booksRes] = await Promise.all([
-        supabase.from('users').select('*').order('created_at', { ascending: false }),
-        supabase.from('registration_links').select('*').order('created_at', { ascending: false }),
+      const [usersRes, linksRes, booksRes] = await Promise.all([
+        fetch('/api/admin/users'),
+        fetch('/api/admin/links'),
         fetch('/api/books')
       ]);
 
-      if (!usersResult.error && usersResult.data) setAllUsers(usersResult.data);
-      if (!linksResult.error && linksResult.data) setAdminLinks(linksResult.data);
+      if (usersRes.ok) setAllUsers(await usersRes.json());
+      if (linksRes.ok) setAdminLinks(await linksRes.json());
       
       if (booksRes.ok) {
         const booksData = await booksRes.json();
@@ -842,20 +675,16 @@ export default function App() {
 
   const generateLink = async () => {
     try {
-      const token = uuidv4();
-      const expiresAt = new Date();
-      expiresAt.setFullYear(expiresAt.getFullYear() + 100);
+      const res = await fetch('/api/admin/generate-link', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to generate link');
+      const data = await res.json();
       
-      const { error } = await supabase
-        .from('registration_links')
-        .insert([{ id: uuidv4(), token, expires_at: expiresAt.toISOString() }]);
-        
-      if (error) throw error;
-      
+      // Optimistic update (though we need the token from server)
+      // We just fetch again to be safe but we could also add it manually if we had the full object
       fetchAdminData();
       showToast('Registration link generated successfully');
     } catch (err: any) {
-      showToast(err.message || 'Failed to generate link', 'error');
+      showToast(err.message, 'error');
     }
   };
 
@@ -887,16 +716,16 @@ export default function App() {
     setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, is_approved: newStatus } : u));
     
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ is_approved: newStatus })
-        .eq('id', userId);
-        
-      if (error) throw error;
+      const res = await fetch('/api/admin/toggle-user-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, isApproved: newStatus }),
+      });
+      if (!res.ok) throw new Error('Failed to update user access');
       showToast(`User access ${newStatus ? 'restored' : 'revoked'} successfully`);
     } catch (err: any) {
       setAllUsers(previousUsers); // Rollback
-      showToast(err.message || 'Failed to update user access', 'error');
+      showToast(err.message, 'error');
     } finally {
       setConfirmModal(null);
     }
@@ -925,12 +754,21 @@ export default function App() {
     setAdminLinks(prev => prev.filter(l => l.id !== id));
 
     try {
-      const { error } = await supabase
-        .from('registration_links')
-        .delete()
-        .eq('id', id);
-        
-      if (error) throw error;
+      const res = await fetch(`/api/admin/links/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      let data;
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('[Frontend] Failed to parse delete link response:', text);
+        throw new Error('Server returned an invalid response');
+      }
+
+      if (!res.ok) throw new Error(data.error || 'Failed to delete link');
       
       console.log('[Frontend] Link revoked successfully');
       showToast('Link revoked successfully');
@@ -950,81 +788,70 @@ export default function App() {
     const file = formData.get('pdf_file') as File;
     
     if (!file) {
-      showToast('Please select a file', 'error');
+      showToast('Please select a PDF file', 'error');
       return;
     }
 
     setLoading(true);
-    setUploadProgress('Uploading document...');
+    setUploadProgress('Generating thumbnail...');
 
     try {
-      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      let coverUrl = 'https://picsum.photos/seed/book/400/600'; // Default cover
+      // 1. Generate Thumbnail from PDF
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 0.5 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      if (context) {
+        await page.render({ canvasContext: context, viewport } as any).promise;
+      }
+      
+      const thumbnailBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+      if (!thumbnailBlob) throw new Error('Failed to generate thumbnail');
 
-      // 1. Upload Document First
-      setUploadProgress('Uploading file to cloud storage...');
-      const docUploadFormData = new FormData();
-      docUploadFormData.append('file', file);
-      const docRes = await fetch('/api/admin/upload', {
+      // 2. Upload PDF
+      setUploadProgress('Uploading PDF...');
+      const pdfUploadFormData = new FormData();
+      pdfUploadFormData.append('file', file);
+      const pdfRes = await fetch('/api/admin/upload', {
         method: 'POST',
-        body: docUploadFormData
+        body: pdfUploadFormData
       });
       
-      let docData;
-      const docText = await docRes.text();
+      let pdfData;
+      const pdfText = await pdfRes.text();
       try {
-        docData = JSON.parse(docText);
+        pdfData = JSON.parse(pdfText);
       } catch (e) {
-        throw new Error(`Server returned non-JSON response during file upload (${docRes.status})`);
+        throw new Error(`Server returned non-JSON response during PDF upload (${pdfRes.status})`);
       }
       
-      if (!docRes.ok) throw new Error(docData.error || 'File upload failed');
+      if (!pdfRes.ok) throw new Error(pdfData.error || 'PDF upload failed');
 
-      // 2. Generate Thumbnail from PDF (only if it is a PDF)
-      if (isPdf) {
-        setUploadProgress('Generating PDF thumbnail...');
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 0.5 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          
-          if (context) {
-            await page.render({ canvasContext: context, viewport } as any).promise;
-          }
-          
-          const thumbnailBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
-          if (thumbnailBlob) {
-            setUploadProgress('Uploading thumbnail...');
-            const thumbUploadFormData = new FormData();
-            thumbUploadFormData.append('file', new File([thumbnailBlob], 'thumbnail.jpg', { type: 'image/jpeg' }));
-            const thumbRes = await fetch('/api/admin/upload', {
-              method: 'POST',
-              body: thumbUploadFormData
-            });
-            const thumbData = await thumbRes.json();
-            if (thumbRes.ok && thumbData.url) {
-              coverUrl = thumbData.url;
-            }
-          }
-        } catch (e) {
-          console.warn('Could not generate PDF thumbnail, using default cover:', e);
-        }
-      } else {
-        // Use generic placeholders based on extension
-        const ext = file.name.split('.').pop()?.toLowerCase();
-        if (ext === 'doc' || ext === 'docx') {
-          coverUrl = 'https://images.unsplash.com/photo-1586075010923-2dd4570fb338?w=400&q=80'; // Word document look
-        } else if (ext === 'ppt' || ext === 'pptx') {
-          coverUrl = 'https://images.unsplash.com/photo-1596495578065-6e0763fa1141?w=400&q=80'; // Presentation look
-        }
+      // 3. Upload Thumbnail
+      setUploadProgress('Uploading thumbnail...');
+      const thumbUploadFormData = new FormData();
+      thumbUploadFormData.append('file', new File([thumbnailBlob], 'thumbnail.jpg', { type: 'image/jpeg' }));
+      const thumbRes = await fetch('/api/admin/upload', {
+        method: 'POST',
+        body: thumbUploadFormData
+      });
+      
+      let thumbData;
+      const thumbText = await thumbRes.text();
+      try {
+        thumbData = JSON.parse(thumbText);
+      } catch (e) {
+        throw new Error(`Server returned non-JSON response during thumbnail upload (${thumbRes.status})`);
       }
+      
+      if (!thumbRes.ok) throw new Error(thumbData.error || 'Thumbnail upload failed');
 
-      // 3. Save Book Record
+      // 4. Save Book Record
       setUploadProgress('Saving record...');
       const category = formData.get('category') as BookCategory;
       const title = category === BookCategory.ACADEMIC 
@@ -1047,20 +874,15 @@ export default function App() {
 
       const bookData = {
         title,
+        author: 'DLCF Library', // Default author
         category,
-        cover_url: coverUrl,
-        download_url: docData.url,
+        cover_url: thumbData.url,
+        download_url: pdfData.url,
         department: formData.get('department'),
         level: formData.get('level'),
         course_code: formData.get('course_code'),
         course_title: formData.get('course_title'),
-        material_type: detectedMaterialType,
-        // Added metadata fields:
-        file_key: docData.file_key,
-        file_name: docData.file_name,
-        mime_type: docData.mime_type,
-        file_size: docData.file_size,
-        uploader_id: user?.id
+        material_type: detectedMaterialType
       };
 
       const res = await fetch('/api/admin/books', {
@@ -1180,13 +1002,14 @@ export default function App() {
 
     const updates: any = {
       title,
+      author: formData.get('author'),
       category,
-      department: formData.get('department') || '',
-      level: formData.get('level') || '',
+      department: formData.get('department'),
+      level: formData.get('level'),
       course_code: courseCode,
-      course_title: formData.get('course_title') || '',
+      course_title: formData.get('course_title'),
       material_type: detectedMaterialType,
-      description: formData.get('description') || editingBook.description || '',
+      description: formData.get('description'),
     };
 
     setLoading(true);
@@ -1229,16 +1052,7 @@ export default function App() {
       const res = await fetch('/api/admin/mass-upload-gdrive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          folderId, 
-          department, 
-          level, 
-          category, 
-          courseCode, 
-          courseTitle, 
-          materialType,
-          uploaderId: user?.id
-        }),
+        body: JSON.stringify({ folderId, department, level, category, courseCode, courseTitle, materialType }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -1255,10 +1069,31 @@ export default function App() {
     }
   };
 
+  const handleSyncStorage = async () => {
+    if (!confirm('Scan Supabase storage and import any newly uploaded books into the library?')) return;
+    try {
+      setSyncingStorage(true);
+      const res = await fetch('/api/admin/sync-storage', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || `Synced ${data.count} books!`);
+        fetchBooks();
+        fetchAdminData();
+      } else {
+        showToast(data.error || 'Failed to sync storage', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to connect to server', 'error');
+    } finally {
+      setSyncingStorage(false);
+    }
+  };
+
   const filteredBooks = useMemo(() => {
     return books.filter((book) => {
       const matchesSearch = 
         book.title.toLowerCase().includes(filters.search.toLowerCase()) ||
+        book.author.toLowerCase().includes(filters.search.toLowerCase()) ||
         book.courseCode?.toLowerCase().includes(filters.search.toLowerCase()) ||
         book.courseTitle?.toLowerCase().includes(filters.search.toLowerCase());
       
@@ -1279,7 +1114,8 @@ export default function App() {
   const groupedAdminBooks = useMemo<{ [key: string]: Book[] }>(() => {
     const filtered = books.filter(b => 
       b.title.toLowerCase().includes(adminBookSearch.toLowerCase()) ||
-      (b.courseCode || '').toLowerCase().includes(adminBookSearch.toLowerCase())
+      (b.courseCode || '').toLowerCase().includes(adminBookSearch.toLowerCase()) ||
+      (b.author || '').toLowerCase().includes(adminBookSearch.toLowerCase())
     );
 
     const groups: { [key: string]: Book[] } = {};
@@ -1297,19 +1133,18 @@ export default function App() {
     const groups: Record<string, { code: string, title: string, count: number, department: string, level: string, coverUrl: string }> = {};
     
     filteredBooks.forEach(book => {
-      if (book.category === BookCategory.ACADEMIC) {
-        const code = book.courseCode || 'GENERAL';
-        if (!groups[code]) {
-          groups[code] = {
-            code: code,
-            title: book.courseTitle || (code === 'GENERAL' ? 'General Materials' : book.title),
+      if (book.category === BookCategory.ACADEMIC && book.courseCode) {
+        if (!groups[book.courseCode]) {
+          groups[book.courseCode] = {
+            code: book.courseCode,
+            title: book.courseTitle || book.title,
             count: 0,
             department: book.department || '',
             level: book.level || '',
-            coverUrl: book.coverUrl || 'https://picsum.photos/seed/book/400/600'
+            coverUrl: book.coverUrl
           };
         }
-        groups[code].count++;
+        groups[book.courseCode].count++;
       }
     });
     
@@ -1336,47 +1171,22 @@ export default function App() {
 
   // --- Views ---
 
-  if (tokenVerifying) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="flex flex-col items-center max-w-sm text-center">
-          <div className="w-16 h-16 rounded-2xl mb-6 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center animate-pulse">
-            <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
-          </div>
-          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">Verifying Registration Link</h2>
-          <p className="text-slate-400 text-sm">Please wait while we check your access link...</p>
-        </div>
-      </div>
-    );
-  }
-
   if (view === 'login') {
     return (
-      <AuthLayout showMobileAuth={showMobileAuth} onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Toast />
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
+          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
-              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
+              <Library className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Welcome Back</h1>
             <p className="text-slate-500 text-sm">Sign in to access the DLCF E-Library</p>
           </div>
-
-          {tokenError && (
-            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3 text-rose-800 text-sm animate-bounce">
-              <ShieldAlert className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Invalid Access Link</p>
-                <p className="text-rose-600/90 text-xs mt-0.5">{tokenError}</p>
-              </div>
-            </div>
-          )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -1414,7 +1224,7 @@ export default function App() {
             </div>
             <button 
               type="submit"
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] cursor-pointer"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
             >
               Sign In
             </button>
@@ -1423,7 +1233,7 @@ export default function App() {
           <div className="mt-4 text-center">
             <button 
               onClick={() => setView('forgot-password')}
-              className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-semibold transition-all cursor-pointer"
+              className="text-sm text-slate-500 hover:text-emerald-600 transition-colors"
             >
               Forgot Password?
             </button>
@@ -1435,22 +1245,22 @@ export default function App() {
             </p>
           </div>
         </motion.div>
-      </AuthLayout>
+      </div>
     );
   }
 
   if (view === 'register') {
     return (
-      <AuthLayout showMobileAuth={showMobileAuth} onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Toast />
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
+          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
-              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
+              <UserIcon className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Member Registration</h1>
             <p className="text-slate-500 text-sm text-center">Create your account to join the community</p>
@@ -1499,7 +1309,7 @@ export default function App() {
             </div>
             <button 
               type="submit"
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] cursor-pointer"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
             >
               Register Account
             </button>
@@ -1507,30 +1317,30 @@ export default function App() {
           
           <button 
             onClick={() => { setView('login'); setShowPassword(false); }}
-            className="w-full mt-4 text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-semibold transition-all cursor-pointer"
+            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
           >
             Already have an account? Sign In
           </button>
         </motion.div>
-      </AuthLayout>
+      </div>
     );
   }
 
   if (view === 'forgot-password') {
     return (
-      <AuthLayout showMobileAuth={showMobileAuth} onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Toast />
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
+          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
-              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
+              <ShieldCheck className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Recover Password</h1>
-            <p className="text-slate-500 text-sm text-center">Enter your email to receive your password</p>
+            <p className="text-slate-500 text-sm text-center">Enter your email to receive a secure password reset link</p>
           </div>
 
           <form onSubmit={handleForgotPassword} className="space-y-4">
@@ -1547,20 +1357,100 @@ export default function App() {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Password'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Recovery Link'}
             </button>
           </form>
           
           <button 
             onClick={() => setView('login')}
-            className="w-full mt-4 text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-semibold transition-all cursor-pointer"
+            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
           >
             Back to Login
           </button>
         </motion.div>
-      </AuthLayout>
+      </div>
+    );
+  }
+
+  if (view === 'reset-password') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Toast />
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
+              <Lock className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800">Set New Password</h1>
+            <p className="text-slate-500 text-sm text-center">Enter and confirm your new password below</p>
+          </div>
+
+          <form onSubmit={handleUpdatePassword} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">New Password</label>
+              <div className="relative">
+                <input 
+                  name="password"
+                  type={showPassword ? "text" : "password"} 
+                  required
+                  minLength={6}
+                  placeholder="At least 6 characters"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all pr-12"
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Confirm New Password</label>
+              <div className="relative">
+                <input 
+                  name="confirmPassword"
+                  type={showPassword ? "text" : "password"} 
+                  required
+                  minLength={6}
+                  placeholder="Re-enter your new password"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all pr-12"
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Update Password'}
+            </button>
+          </form>
+          
+          <button 
+            onClick={() => { setView('login'); setShowPassword(false); }}
+            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+          >
+            Back to Login
+          </button>
+        </motion.div>
+      </div>
     );
   }
 
@@ -1682,8 +1572,8 @@ export default function App() {
                 <Menu className="w-6 h-6" />
               </button>
               <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl overflow-hidden border border-emerald-500/20 bg-white flex items-center justify-center shadow-sm">
-                  <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+                <div className="bg-emerald-600 p-2 rounded-lg">
+                  <Library className="w-6 h-6 text-white" />
                 </div>
                 <span className="text-xl font-bold tracking-tight text-emerald-900">DLCF <span className="text-emerald-600">E-Library</span></span>
               </div>
@@ -1797,6 +1687,15 @@ export default function App() {
             >
               Mass Upload (GDrive)
             </button>
+            <button
+              onClick={handleSyncStorage}
+              disabled={syncingStorage}
+              className="whitespace-nowrap px-4 sm:px-6 py-3 rounded-2xl font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20 transition-all text-sm sm:text-base flex items-center gap-2 disabled:opacity-50"
+              title="Scan Supabase Storage bucket and import any unindexed books"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncingStorage ? 'animate-spin' : ''}`} />
+              {syncingStorage ? 'Syncing...' : 'Sync from Storage'}
+            </button>
           </div>
 
           {adminTab === 'users' ? (
@@ -1865,13 +1764,15 @@ export default function App() {
                             </button>
                           ) : !u.is_admin ? (
                             <>
-                              <button 
-                                onClick={() => promoteToAdmin(u.id, u.name)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/10"
-                              >
-                                <ShieldCheck className="w-4 h-4" />
-                                Invite Admin
-                              </button>
+                              {user?.isSuperAdmin && (
+                                <button 
+                                  onClick={() => promoteToAdmin(u.id, u.name)}
+                                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/10"
+                                >
+                                  <ShieldCheck className="w-4 h-4" />
+                                  Invite Admin
+                                </button>
+                              )}
                               <button 
                                 onClick={() => toggleUserAccess(u.id, u.is_approved)}
                                 className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg ${
@@ -2147,14 +2048,14 @@ export default function App() {
                     )}
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Document File</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">PDF File</label>
                       <div className="relative">
                         <input 
                           type="file" 
                           name="pdf_file" 
-                          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt" 
+                          accept=".pdf" 
                           required 
-                          className="sr-only" 
+                          className="hidden" 
                           id="pdf-upload"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
@@ -2169,7 +2070,7 @@ export default function App() {
                           className="flex items-center gap-3 w-full px-4 py-3 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-sm cursor-pointer hover:bg-slate-100 transition-colors"
                         >
                           <FileUp className="w-5 h-5 text-slate-400" />
-                          <span id="pdf-label" className="text-slate-500 truncate">Select document from local storage (.pdf, .docx, .pptx, etc.)</span>
+                          <span id="pdf-label" className="text-slate-500 truncate">Select PDF from local storage</span>
                         </label>
                       </div>
                     </div>
@@ -2273,7 +2174,7 @@ export default function App() {
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 
                                   onClick={() => setEditingBook(book)}
                                   className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
@@ -2319,7 +2220,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
                       type="text"
-                      placeholder="Title, course code, course title..."
+                      placeholder="Title, author, code..."
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                       value={filters.search}
                       onChange={(e) => setFilters({ ...filters, search: e.target.value })}
@@ -2401,7 +2302,7 @@ export default function App() {
                       filters.category === 'All' ? 'All Resources' : filters.category
                     )}
                     <span className="ml-2 text-sm font-normal text-slate-400">
-                      ({selectedCourse ? filteredBooks.filter(b => (b.courseCode || 'GENERAL') === selectedCourse).length : 
+                      ({selectedCourse ? filteredBooks.filter(b => b.courseCode === selectedCourse).length : 
                         (filters.category === BookCategory.ACADEMIC ? groupedCourses.length : filteredBooks.length)} 
                       {filters.category !== BookCategory.ACADEMIC ? ' items' : (selectedCourse ? ' items' : ' courses')})
                     </span>
@@ -2459,7 +2360,7 @@ export default function App() {
                     filteredBooks
                       .filter(b => {
                         if (filters.category === BookCategory.CHRISTIAN_NOVEL) return true;
-                        return (b.courseCode || 'GENERAL') === selectedCourse;
+                        return b.courseCode === selectedCourse;
                       })
                       .map((book) => (
                     <motion.a
@@ -2509,6 +2410,7 @@ export default function App() {
                           )}
                         </div>
                         <h3 className="text-sm sm:text-base font-bold text-slate-800 line-clamp-1 group-hover:text-emerald-600 transition-colors">{book.title}</h3>
+                        <p className="text-[10px] sm:text-sm text-slate-500 mb-2 sm:mb-3">{book.author}</p>
                         
                         {book.category === BookCategory.ACADEMIC && (
                           <div className="flex items-center gap-2 text-[9px] sm:text-[11px] text-slate-400 border-t border-slate-100 pt-2 sm:pt-3">
@@ -2529,7 +2431,7 @@ export default function App() {
               </div>
 
               {((filters.category === BookCategory.ACADEMIC && !selectedCourse && groupedCourses.length === 0) || 
-                (selectedCourse && filteredBooks.filter(b => (b.courseCode || 'GENERAL') === selectedCourse).length === 0) ||
+                (selectedCourse && filteredBooks.filter(b => b.courseCode === selectedCourse).length === 0) ||
                 (filters.category === BookCategory.CHRISTIAN_NOVEL && filteredBooks.length === 0)) && (
                 <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">
                   <div className="bg-slate-50 p-4 rounded-full mb-4">
@@ -2573,8 +2475,8 @@ export default function App() {
             >
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-lg overflow-hidden border border-emerald-500/20 bg-white flex items-center justify-center shadow-sm">
-                    <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+                  <div className="bg-emerald-600 p-2 rounded-lg">
+                    <Library className="w-5 h-5 text-white" />
                   </div>
                   <span className="font-bold text-slate-800">DLCF Library</span>
                 </div>
@@ -2690,7 +2592,7 @@ export default function App() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input 
                       type="text"
-                      placeholder="Title, course code, course title..."
+                      placeholder="Title, author, code..."
                       className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                       value={filters.search}
                       onChange={(e) => setFilters({ ...filters, search: e.target.value })}
@@ -2978,9 +2880,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-200 bg-white flex items-center justify-center shadow-sm">
-                <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
-              </div>
+              <Library className="w-5 h-5 text-emerald-600" />
               <span className="font-bold text-slate-800">DLCF E-Library</span>
             </div>
             <p className="text-sm text-slate-400">© {new Date().getFullYear()} Deeper Life Campus Fellowship. All rights reserved.</p>
