@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Book, BookCategory, FilterState, User, RegistrationLink } from './types';
-import { INITIAL_BOOKS, DEPARTMENTS, LEVELS } from './constants';
+import { INITIAL_BOOKS, DEPARTMENTS, LEVELS, getFallbackCover } from './constants';
 import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
 
 // Set worker source for pdfjs
@@ -80,7 +80,6 @@ export default function App() {
   const [massUploadCategory, setMassUploadCategory] = useState<BookCategory>(BookCategory.ACADEMIC);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
-  const [syncingStorage, setSyncingStorage] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -147,15 +146,20 @@ export default function App() {
           }
         }
 
+        const cat = b.category || BookCategory.ACADEMIC;
+        const cCode = b.course_code || b.courseCode || metadata.course_code || metadata.courseCode || '';
+        const cTitle = b.course_title || b.courseTitle || metadata.course_title || metadata.courseTitle || b.title || '';
+        const dept = b.department || metadata.department || '';
+
         return {
           ...b,
           description: cleanDescription,
-          coverUrl: b.cover_url || b.coverUrl || metadata.cover_url,
+          coverUrl: b.cover_url || b.coverUrl || metadata.cover_url || getFallbackCover(cCode, cTitle, cat, dept),
           downloadUrl: b.download_url || b.downloadUrl || metadata.download_url,
-          courseCode: b.course_code || b.courseCode || metadata.course_code || metadata.courseCode,
-          courseTitle: b.course_title || b.courseTitle || metadata.course_title || metadata.courseTitle,
+          courseCode: cCode,
+          courseTitle: cTitle,
           materialType: b.material_type || b.materialType || metadata.material_type || metadata.materialType,
-          department: b.department || metadata.department,
+          department: dept,
           level: b.level || metadata.level
         };
       });
@@ -652,13 +656,19 @@ export default function App() {
       if (booksRes.ok) {
         const booksData = await booksRes.json();
         if (Array.isArray(booksData)) {
-          setBooks(booksData.map((b: any) => ({
-            ...b,
-            coverUrl: b.cover_url || b.coverUrl,
-            downloadUrl: b.download_url || b.downloadUrl,
-            courseCode: b.course_code || b.courseCode,
-            courseTitle: b.course_title || b.courseTitle
-          })));
+          setBooks(booksData.map((b: any) => {
+            const cat = b.category || BookCategory.ACADEMIC;
+            const cCode = b.course_code || b.courseCode || '';
+            const cTitle = b.course_title || b.courseTitle || b.title || '';
+            const dept = b.department || '';
+            return {
+              ...b,
+              coverUrl: b.cover_url || b.coverUrl || getFallbackCover(cCode, cTitle, cat, dept),
+              downloadUrl: b.download_url || b.downloadUrl,
+              courseCode: cCode,
+              courseTitle: cTitle
+            };
+          }));
         }
       }
     } catch (err) {
@@ -1066,26 +1076,6 @@ export default function App() {
     }
   };
 
-  const handleSyncStorage = async () => {
-    if (!confirm('Scan Supabase storage and import any newly uploaded books into the library?')) return;
-    try {
-      setSyncingStorage(true);
-      const res = await fetch('/api/admin/sync-storage', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || `Synced ${data.count} books!`);
-        fetchBooks();
-        fetchAdminData();
-      } else {
-        showToast(data.error || 'Failed to sync storage', 'error');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Failed to connect to server', 'error');
-    } finally {
-      setSyncingStorage(false);
-    }
-  };
-
   const filteredBooks = useMemo(() => {
     return books.filter((book) => {
       const matchesSearch = 
@@ -1138,7 +1128,7 @@ export default function App() {
             count: 0,
             department: book.department || '',
             level: book.level || '',
-            coverUrl: book.coverUrl
+            coverUrl: book.coverUrl || getFallbackCover(book.courseCode, book.courseTitle || book.title, book.category, book.department)
           };
         }
         groups[book.courseCode].count++;
@@ -1684,15 +1674,6 @@ export default function App() {
             >
               Mass Upload (GDrive)
             </button>
-            <button
-              onClick={handleSyncStorage}
-              disabled={syncingStorage}
-              className="whitespace-nowrap px-4 sm:px-6 py-3 rounded-2xl font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20 transition-all text-sm sm:text-base flex items-center gap-2 disabled:opacity-50"
-              title="Scan Supabase Storage bucket and import any unindexed books"
-            >
-              <RefreshCw className={`w-4 h-4 ${syncingStorage ? 'animate-spin' : ''}`} />
-              {syncingStorage ? 'Syncing...' : 'Sync from Storage'}
-            </button>
           </div>
 
           {adminTab === 'users' ? (
@@ -2161,7 +2142,13 @@ export default function App() {
                           {groupBooks.map(book => (
                             <div key={book.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 flex items-center justify-between group hover:bg-white hover:shadow-md transition-all">
                               <div className="flex items-center gap-4 min-w-0">
-                                <img src={book.coverUrl} className="w-10 h-14 object-cover rounded-lg shadow-sm flex-shrink-0" referrerPolicy="no-referrer" />
+                                <img 
+                                  src={book.coverUrl} 
+                                  alt={book.title}
+                                  onError={(e) => { e.currentTarget.src = getFallbackCover(book.courseCode, book.title, book.category, book.department); }}
+                                  className="w-10 h-14 object-cover rounded-lg shadow-sm flex-shrink-0" 
+                                  referrerPolicy="no-referrer" 
+                                />
                                 <div className="min-w-0">
                                   <h4 className="font-bold text-slate-800 truncate text-sm">{book.title}</h4>
                                   <div className="flex items-center gap-2 mt-1">
@@ -2324,6 +2311,7 @@ export default function App() {
                         <img 
                           src={course.coverUrl} 
                           alt={course.title}
+                          onError={(e) => { e.currentTarget.src = getFallbackCover(course.code, course.title, BookCategory.ACADEMIC, course.department); }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           referrerPolicy="no-referrer"
                         />
@@ -2375,6 +2363,7 @@ export default function App() {
                         <img 
                           src={book.coverUrl} 
                           alt={book.title}
+                          onError={(e) => { e.currentTarget.src = getFallbackCover(book.courseCode, book.title, book.category, book.department); }}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           referrerPolicy="no-referrer"
                         />

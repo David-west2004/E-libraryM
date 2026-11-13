@@ -141,6 +141,53 @@ function getSupabase() {
   return supabaseClient;
 }
 
+function getFallbackCover(
+  courseCode?: string,
+  title?: string,
+  category?: string,
+  department?: string
+): string {
+  const isNovel = category === 'Christian Novel';
+  const code = (courseCode || (isNovel ? 'NOVEL' : 'DLCF')).toUpperCase().trim();
+  const rawTitle = title || (isNovel ? 'Christian Novel' : 'Course Material');
+  const cleanTitle = rawTitle.replace(/[<>&"]/g, '');
+  const cleanDept = (department || (isNovel ? 'Inspirational' : 'Higher Learning')).replace(/[<>&"]/g, '');
+
+  const primaryGrad1 = isNovel ? '#854d0e' : '#047857';
+  const primaryGrad2 = isNovel ? '#451a03' : '#064e3b';
+  const accentColor = isNovel ? '#fde047' : '#34d399';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+    <defs>
+      <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${primaryGrad1}" />
+        <stop offset="100%" stop-color="${primaryGrad2}" />
+      </linearGradient>
+      <pattern id="pat" width="24" height="24" patternUnits="userSpaceOnUse">
+        <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="400" height="600" fill="url(#g)" />
+    <rect width="400" height="600" fill="url(#pat)" />
+    <rect x="0" y="0" width="24" height="600" fill="rgba(0,0,0,0.3)" />
+    <line x1="24" y1="0" x2="24" y2="600" stroke="rgba(255,255,255,0.2)" stroke-width="2" />
+    <rect x="42" y="32" width="326" height="536" rx="10" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" />
+    <rect x="48" y="38" width="314" height="524" rx="8" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+    <rect x="65" y="55" width="125" height="26" rx="13" fill="rgba(255,255,255,0.15)" />
+    <text x="127" y="72" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="10" font-weight="700" fill="${accentColor}" text-anchor="middle" letter-spacing="1">DLCF LIBRARY</text>
+    <rect x="65" y="150" width="280" height="100" rx="16" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+    <text x="205" y="212" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="36" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">${code.slice(0, 10)}</text>
+    <text x="205" y="295" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">
+      <tspan x="205" dy="0">${cleanTitle.slice(0, 24)}</tspan>
+      ${cleanTitle.length > 24 ? `<tspan x="205" dy="24">${cleanTitle.slice(24, 48)}</tspan>` : ''}
+    </text>
+    <line x1="65" y1="480" x2="345" y2="480" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" />
+    <text x="205" y="515" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-size="12" font-weight="600" fill="rgba(255,255,255,0.8)" text-anchor="middle">${cleanDept.slice(0, 34)}</text>
+  </svg>`;
+
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 const app = express();
 
 app.use(express.json());
@@ -901,22 +948,12 @@ app.use((req, res, next) => {
     return { data: null, error };
   }
 
-  // Books Management
+  // Books & Materials Management (Primary table: course_materials)
   app.get('/api/books', async (req, res) => {
     try {
       const supabase = getSupabase();
       
-      // 1. Fetch legacy/admin uploaded books
-      const { data: books, error: booksErr } = await supabase
-        .from('books')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (booksErr && !booksErr.message.includes('relation "books" does not exist')) {
-        console.warn('[Books API] Error querying books table:', booksErr.message);
-      }
-
-      // 2. Fetch Google Drive ingested materials from course_materials table
+      // 1. Fetch materials from course_materials table
       const { data: materials, error: matErr } = await supabase
         .from('course_materials')
         .select('*')
@@ -926,12 +963,12 @@ app.use((req, res, next) => {
         console.warn('[Books API] Error querying course_materials table:', matErr.message);
       }
 
-      // 3. Format course_materials to match the frontend Book interface
+      // 2. Format course_materials to match the frontend Book interface
       const normalizedMaterials = (materials || []).map((m: any) => {
         const isNovel = m.category === 'Christian Novel' || m.course_code === 'GENERAL' || !m.course_code;
         const category = isNovel ? 'Christian Novel' : (m.category || 'Academic');
-        const courseCode = isNovel ? '' : m.course_code;
-        const department = isNovel ? '' : m.department;
+        const courseCode = isNovel ? '' : (m.course_code || '');
+        const department = isNovel ? '' : (m.department || '');
 
         return {
           id: m.id,
@@ -939,13 +976,13 @@ app.use((req, res, next) => {
           author: '',
           category: category,
           department: department,
-          level: isNovel ? '' : m.level,
+          level: isNovel ? '' : (m.level || ''),
           course_code: courseCode,
-          course_title: m.title,
-          material_type: m.material_type || 'Course Material',
+          course_title: m.course_title || m.title,
+          material_type: m.material_type || (isNovel ? 'Novel' : 'Course Material'),
           download_url: m.file_url || m.download_url,
-          cover_url: `https://picsum.photos/seed/${encodeURIComponent(courseCode || 'book')}/400/600`,
-          description: isNovel ? 'Christian Novel' : `Course material for ${courseCode} (${department})`,
+          cover_url: m.cover_url || getFallbackCover(courseCode, m.title, category, department),
+          description: isNovel ? 'Christian Novel' : (m.description || `Course material for ${courseCode} (${department})`),
           file_name: m.file_name,
           file_size: m.file_size,
           mime_type: m.mime_type,
@@ -953,14 +990,37 @@ app.use((req, res, next) => {
         };
       });
 
-      // 4. Merge books and course_materials without duplicate download URLs
-      const combined = [...(books || [])];
+      // 3. Fallback: check legacy books table only if needed
+      let legacyBooks: any[] = [];
+      try {
+        const { data: books, error: booksErr } = await supabase
+          .from('books')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!booksErr && books && books.length > 0) {
+          legacyBooks = books.map((b: any) => {
+            const isNovel = b.category === 'Christian Novel';
+            const courseCode = isNovel ? '' : (b.course_code || '');
+            const department = isNovel ? '' : (b.department || '');
+            return {
+              ...b,
+              cover_url: b.cover_url || getFallbackCover(courseCode, b.title, b.category, department),
+              download_url: b.download_url || b.file_url
+            };
+          });
+        }
+      } catch (legacyErr) {
+        // Safe to ignore if books table was dropped
+      }
+
+      // Merge avoiding duplicate download URLs
+      const combined = [...normalizedMaterials];
       const seenUrls = new Set(combined.map((b: any) => b.download_url).filter(Boolean));
 
-      for (const mat of normalizedMaterials) {
-        if (!seenUrls.has(mat.download_url)) {
-          combined.push(mat);
-          seenUrls.add(mat.download_url);
+      for (const b of legacyBooks) {
+        if (!seenUrls.has(b.download_url)) {
+          combined.push(b);
+          seenUrls.add(b.download_url);
         }
       }
 
@@ -974,52 +1034,112 @@ app.use((req, res, next) => {
   app.post('/api/admin/books', async (req, res) => {
     try {
       const supabase = getSupabase();
-      const { title, category, course_code } = req.body;
+      const { title, category, course_code, course_title, department, level, material_type, download_url, cover_url, description, file_name, file_size, mime_type, file_key } = req.body;
 
-      // Duplicate Check
-      const { data: existingBooks } = await supabase
-        .from('books')
+      const isNovel = category === 'Christian Novel';
+      const cleanCourseCode = isNovel ? '' : (course_code || '');
+      const cleanDept = isNovel ? '' : (department || '');
+      const cleanLevel = isNovel ? '' : (level || '');
+
+      // Duplicate Check against course_materials
+      const { data: existing } = await supabase
+        .from('course_materials')
         .select('id')
         .eq('title', title)
-        .eq('category', category)
-        .eq('course_code', course_code || '');
+        .eq('course_code', cleanCourseCode);
 
-      if (existingBooks && existingBooks.length > 0) {
+      if (existing && existing.length > 0) {
         return res.status(400).json({ error: 'A material with this title and course code already exists.' });
       }
 
-      const bookData = { ...req.body, id: uuidv4() };
-      const { data, error } = await insertBookResilient(supabase, bookData);
+      const id = uuidv4();
+      const cover = cover_url || getFallbackCover(cleanCourseCode, title, category, cleanDept);
+      const download = download_url || '';
+
+      const materialData = {
+        id,
+        title,
+        category: category || 'Academic',
+        course_code: cleanCourseCode,
+        course_title: course_title || title,
+        department: cleanDept,
+        level: cleanLevel,
+        material_type: material_type || (isNovel ? 'Novel' : 'Course Material'),
+        file_url: download,
+        download_url: download,
+        cover_url: cover,
+        description: description || '',
+        file_name: file_name || '',
+        file_size: file_size || null,
+        mime_type: mime_type || '',
+        file_key: file_key || '',
+        created_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('course_materials')
+        .insert([materialData])
+        .select()
+        .single();
       
-      if (error) throw error;
+      if (error) {
+        console.warn('[Admin Books] Standard insert into course_materials failed, retrying with core columns:', error.message);
+        const coreMaterial = {
+          id,
+          title,
+          category: category || 'Academic',
+          course_code: cleanCourseCode,
+          department: cleanDept,
+          level: cleanLevel,
+          material_type: material_type || 'Course Material',
+          file_url: download,
+          download_url: download,
+          file_name: file_name || '',
+          file_size: file_size || null,
+          mime_type: mime_type || '',
+          created_at: new Date().toISOString()
+        };
+        const fallbackRes = await supabase.from('course_materials').insert([coreMaterial]).select().single();
+        if (fallbackRes.error) throw fallbackRes.error;
+        return res.json(fallbackRes.data);
+      }
+
       res.json(data);
     } catch (err: any) {
+      console.error('[Admin Books Create Error]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   app.delete('/api/admin/books/:id', async (req, res) => {
     const { id } = req.params;
-    console.log(`[Admin] Attempting to delete book: ${id}`);
+    console.log(`[Admin] Attempting to delete material: ${id}`);
     try {
       if (!id) {
-        return res.status(400).json({ error: 'Book ID is required' });
+        return res.status(400).json({ error: 'Material ID is required' });
       }
       const supabase = getSupabase();
+      
+      // Delete from course_materials
       const { error, count } = await supabase
-        .from('books')
+        .from('course_materials')
         .delete({ count: 'exact' })
         .eq('id', id);
       
       if (error) {
-        console.error(`[Admin] Error deleting book ${id}:`, error.message);
+        console.error(`[Admin] Error deleting course_materials ${id}:`, error.message);
         throw error;
       }
+
+      // Also remove from legacy books table if exists
+      try {
+        await supabase.from('books').delete().eq('id', id);
+      } catch (e) {}
       
-      console.log(`[Admin] Successfully deleted book: ${id}. Rows affected: ${count}`);
+      console.log(`[Admin] Successfully deleted material: ${id}. Rows affected: ${count}`);
       res.json({ success: true, deleted: count });
     } catch (err: any) {
-      console.error(`[Admin] Exception in delete book ${id}:`, err);
+      console.error(`[Admin] Exception in delete material ${id}:`, err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -1028,70 +1148,45 @@ app.use((req, res, next) => {
     const { id } = req.params;
     try {
       const supabase = getSupabase();
-      const { error } = await updateBookResilient(supabase, id, req.body);
+      const updateData: any = {};
+      const allowed = ['title', 'category', 'department', 'level', 'course_code', 'course_title', 'material_type', 'description', 'download_url', 'file_url', 'cover_url'];
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updateData[key] = req.body[key];
+      }
+      if (updateData.download_url && !updateData.file_url) {
+        updateData.file_url = updateData.download_url;
+      }
+
+      const { error } = await supabase
+        .from('course_materials')
+        .update(updateData)
+        .eq('id', id);
       
-      if (error) throw error;
+      if (error) {
+        console.warn('[Admin] Update error on course_materials, retrying with core columns:', error.message);
+        const coreCols = ['title', 'category', 'department', 'level', 'course_code', 'material_type', 'file_url', 'download_url'];
+        const coreData: any = {};
+        for (const k of coreCols) {
+          if (updateData[k] !== undefined) coreData[k] = updateData[k];
+        }
+        const { error: coreErr } = await supabase.from('course_materials').update(coreData).eq('id', id);
+        if (coreErr) throw coreErr;
+      }
+
       res.json({ success: true });
     } catch (err: any) {
+      console.error('[Admin Update Material Error]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Sync storage endpoint for Admin Dashboard
+  // Sync storage endpoint (kept as harmless no-op for backwards compatibility)
   app.post('/api/admin/sync-storage', async (req, res) => {
-    console.log('[Admin] Received sync-storage request');
-    try {
-      const supabase = getSupabase();
-      let importedCount = 0;
-
-      // 1. Fetch all records from course_materials to sync into books if missing
-      const { data: materials } = await supabase.from('course_materials').select('*');
-      const { data: existingBooks } = await supabase.from('books').select('download_url');
-      const existingUrls = new Set((existingBooks || []).map((b: any) => b.download_url).filter(Boolean));
-
-      if (materials && materials.length > 0) {
-        for (const m of materials) {
-          const downloadUrl = m.file_url || m.download_url;
-          if (downloadUrl && !existingUrls.has(downloadUrl)) {
-            const isNovel = m.category === 'Christian Novel' || m.course_code === 'GENERAL' || !m.course_code;
-            const category = isNovel ? 'Christian Novel' : (m.category || 'Academic');
-            const courseCode = isNovel ? '' : m.course_code;
-            const department = isNovel ? '' : m.department;
-
-            await supabase.from('books').insert({
-              id: uuidv4(),
-              title: m.title,
-              category: category,
-              department: department,
-              level: isNovel ? '' : m.level,
-              course_code: courseCode,
-              course_title: m.title,
-              material_type: m.material_type || 'Course Material',
-              download_url: downloadUrl,
-              cover_url: `https://picsum.photos/seed/${encodeURIComponent(courseCode || 'book')}/400/600`,
-              description: isNovel ? 'Christian Novel' : `Course material for ${courseCode}`,
-              file_name: m.file_name,
-              file_size: m.file_size,
-              mime_type: m.mime_type,
-              created_at: m.created_at || new Date().toISOString()
-            });
-
-            existingUrls.add(downloadUrl);
-            importedCount++;
-          }
-        }
-      }
-
-      console.log(`[Admin Sync Storage] Complete. Synced ${importedCount} materials into library.`);
-      res.json({
-        success: true,
-        count: importedCount,
-        message: `Storage sync complete! Added ${importedCount} new materials to library.`
-      });
-    } catch (err: any) {
-      console.error('[Admin Sync Storage Error]:', err);
-      res.status(500).json({ error: err.message });
-    }
+    res.json({
+      success: true,
+      count: 0,
+      message: 'Materials are directly served from course_materials.'
+    });
   });
 
   // File Upload to Supabase Storage
@@ -1252,15 +1347,14 @@ app.use((req, res, next) => {
             finalCourseTitle = '';
           }
 
-          // Duplicate Check
-          const { data: existingBooks } = await supabase
-            .from('books')
+          // Duplicate Check against course_materials
+          const { data: existingMaterials } = await supabase
+            .from('course_materials')
             .select('id')
             .eq('title', title)
-            .eq('category', category)
             .eq('course_code', finalCourseCode || '');
 
-          if (existingBooks && existingBooks.length > 0) {
+          if (existingMaterials && existingMaterials.length > 0) {
             console.log(`[Mass Upload] Skipping duplicate: ${title} (${courseCode})`);
             results.push({ name: file.name, status: 'skipped', message: 'Duplicate found' });
             continue;
@@ -1281,29 +1375,52 @@ app.use((req, res, next) => {
             }
           }
 
-          const bookData = {
+          const coverUrl = getFallbackCover(finalCourseCode, title, category, department);
+          const materialData = {
             id: uuidv4(),
             title,
-            category,
-            department,
-            level,
+            category: category === 'Christian Novel' ? 'Christian Novel' : 'Academic',
+            department: department || '',
+            level: level || '',
             course_code: finalCourseCode,
             course_title: finalCourseTitle,
             material_type: detectedMaterialType,
             download_url: publicUrl,
-            cover_url: 'https://picsum.photos/seed/book/400/600', // Default cover
+            file_url: publicUrl,
+            cover_url: coverUrl,
             description: `Mass uploaded from Google Drive: ${file.name}`,
-            // Store file metadata
             file_key: fileName,
             file_name: file.name,
             mime_type: file.mimeType || 'application/octet-stream',
             file_size: file.size ? parseInt(file.size, 10) : null,
-            uploader_id: uploaderId || null
+            uploader_id: uploaderId || null,
+            created_at: new Date().toISOString()
           };
 
-          const { data: dbData, error: dbError } = await insertBookResilient(supabase, bookData);
+          const { error: dbError } = await supabase
+            .from('course_materials')
+            .insert([materialData]);
 
-          if (dbError) throw dbError;
+          if (dbError) {
+            console.warn('[Mass Upload] Primary insert into course_materials failed, trying core fields:', dbError.message);
+            const coreData = {
+              id: materialData.id,
+              title: materialData.title,
+              category: materialData.category,
+              department: materialData.department,
+              level: materialData.level,
+              course_code: materialData.course_code,
+              material_type: materialData.material_type,
+              download_url: publicUrl,
+              file_url: publicUrl,
+              file_name: file.name,
+              file_size: materialData.file_size,
+              mime_type: materialData.mime_type,
+              created_at: materialData.created_at
+            };
+            const coreRes = await supabase.from('course_materials').insert([coreData]);
+            if (coreRes.error) throw coreRes.error;
+          }
 
           results.push({ name: file.name, status: 'success' });
         } catch (err: any) {
