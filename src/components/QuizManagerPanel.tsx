@@ -37,12 +37,20 @@ const QUESTION_TYPE_COLORS: Record<QuizQuestionType, string> = {
   descriptive: 'bg-amber-100 text-amber-700',
 };
 
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+const getTomorrowDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+};
+
 const EMPTY_FORM = {
   question_text: '',
   question_type: 'mcq' as QuizQuestionType,
   options: ['', '', '', ''],
   correct_answer: '',
   week_identifier: getIsoWeekIdentifier(),
+  date_identifier: getTodayDate(),
 };
 
 export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
@@ -54,7 +62,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Filters
-  const [filterWeek, setFilterWeek] = useState(getIsoWeekIdentifier());
+  const [filterDate, setFilterDate] = useState(getTodayDate());
   const [filterType, setFilterType] = useState<QuizQuestionType | 'all'>('all');
   const [searchText, setSearchText] = useState('');
 
@@ -75,7 +83,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (filterWeek) query = query.eq('week_identifier', filterWeek);
+      if (filterDate) query = query.eq('date_identifier', filterDate);
       if (filterType !== 'all') query = query.eq('question_type', filterType);
 
       const { data, error: err } = await query;
@@ -86,7 +94,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  }, [filterWeek, filterType]);
+  }, [filterDate, filterType]);
 
   useEffect(() => {
     loadQuestions();
@@ -99,7 +107,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
 
   const openCreateForm = () => {
     setEditingId(null);
-    setForm({ ...EMPTY_FORM, week_identifier: getIsoWeekIdentifier() });
+    setForm({ ...EMPTY_FORM, week_identifier: getIsoWeekIdentifier(), date_identifier: getTodayDate() });
     setIsFormOpen(true);
   };
 
@@ -113,6 +121,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
         : ['', '', '', ''],
       correct_answer: q.correct_answer ?? '',
       week_identifier: q.week_identifier,
+      date_identifier: (q as any).date_identifier ?? getTodayDate(),
     });
     setIsFormOpen(true);
   };
@@ -154,10 +163,12 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
           : [],
         correct_answer: form.correct_answer.trim(),
         week_identifier: form.week_identifier.trim(),
+        date_identifier: form.date_identifier,
       };
 
       if (!payload.question_text) throw new Error('Question text is required.');
       if (!payload.correct_answer) throw new Error('Correct answer is required.');
+      if (!payload.date_identifier) throw new Error('Date is required.');
       if (!payload.week_identifier.match(/^\d{4}-W\d{2}$/)) {
         throw new Error('Week identifier must be in format YYYY-WNN (e.g. 2026-W46)');
       }
@@ -207,18 +218,19 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
     }
   };
 
-  const handleDuplicateToWeek = async (q: QuizQuestion, targetWeek: string) => {
+  const handleDuplicateToDate = async (q: QuizQuestion, targetDate: string) => {
     try {
       const { error: err } = await supabase.from('quiz_questions').insert([{
         question_text: q.question_text,
         question_type: q.question_type,
         options: q.options,
         correct_answer: q.correct_answer,
-        week_identifier: targetWeek,
+        week_identifier: q.week_identifier,
+        date_identifier: targetDate,
       }]);
       if (err) throw err;
-      showSuccess(`Duplicated to ${targetWeek}`);
-      if (filterWeek === targetWeek) loadQuestions();
+      showSuccess(`Duplicated to ${targetDate}`);
+      if (filterDate === targetDate) loadQuestions();
     } catch (err: any) {
       setError(err.message || 'Failed to duplicate question.');
     }
@@ -307,17 +319,28 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
 
         {/* Filters */}
         <div className="mt-5 flex flex-wrap gap-3">
-          {/* Week filter */}
+          {/* Date filter */}
           <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl">
             <Calendar className="w-4 h-4 text-slate-400 flex-shrink-0" />
             <input
-              type="text"
-              value={filterWeek}
-              onChange={e => setFilterWeek(e.target.value)}
-              placeholder="e.g. 2026-W46"
-              className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none w-28"
+              type="date"
+              value={filterDate}
+              onChange={e => setFilterDate(e.target.value)}
+              className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none w-36"
             />
           </div>
+          <button
+            onClick={() => setFilterDate(getTodayDate())}
+            className={`px-3 py-2 rounded-2xl text-xs font-black border transition-colors ${filterDate === getTodayDate() ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-emerald-400'}`}
+          >
+            Today
+          </button>
+          <button
+            onClick={() => setFilterDate(getTomorrowDate())}
+            className={`px-3 py-2 rounded-2xl text-xs font-black border transition-colors ${filterDate === getTomorrowDate() ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-blue-400'}`}
+          >
+            Tomorrow
+          </button>
 
           {/* Type filter */}
           <select
@@ -367,7 +390,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
             </div>
             <p className="text-sm font-bold text-slate-500 mb-1">No questions found</p>
             <p className="text-xs text-slate-400">
-              {filterWeek ? `No questions for ${filterWeek}.` : 'Try adjusting your filters.'}
+              {filterDate ? `No questions for ${filterDate}.` : 'Try adjusting your filters.'}
             </p>
             <button
               onClick={openCreateForm}
@@ -383,7 +406,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
               <div className="col-span-1">#</div>
               <div className="col-span-5">Question</div>
               <div className="col-span-2">Type</div>
-              <div className="col-span-2">Week</div>
+              <div className="col-span-2">Date</div>
               <div className="col-span-2 text-right">Actions</div>
             </div>
 
@@ -411,19 +434,27 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
                 </div>
 
                 <div className="col-span-2">
-                  <span className={`text-[11px] font-bold ${q.week_identifier === currentWeek ? 'text-emerald-600' : 'text-slate-400'}`}>
-                    {q.week_identifier}
-                    {q.week_identifier === currentWeek && (
-                      <span className="ml-1.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-black">LIVE</span>
-                    )}
-                  </span>
+                  {(() => {
+                    const qDate = (q as any).date_identifier ?? '';
+                    const today = getTodayDate();
+                    const isLive = qDate === today;
+                    const isExpired = qDate < today;
+                    return (
+                      <span className={`text-[11px] font-bold ${isLive ? 'text-emerald-600' : isExpired ? 'text-rose-400' : 'text-blue-500'}`}>
+                        {qDate || q.week_identifier}
+                        {isLive && <span className="ml-1.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[9px] font-black">LIVE</span>}
+                        {isExpired && <span className="ml-1.5 px-1.5 py-0.5 bg-rose-100 text-rose-600 rounded text-[9px] font-black">EXPIRED</span>}
+                        {!isLive && !isExpired && qDate && <span className="ml-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded text-[9px] font-black">UPCOMING</span>}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Duplicate to next week */}
+                  {/* Duplicate to tomorrow */}
                   <button
-                    onClick={() => handleDuplicateToWeek(q, nextWeek)}
-                    title={`Duplicate to ${nextWeek}`}
+                    onClick={() => handleDuplicateToDate(q, getTomorrowDate())}
+                    title={`Duplicate to tomorrow (${getTomorrowDate()})`}
                     className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -455,7 +486,7 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
         {filteredQuestions.length > 0 && (
           <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-400">
-              {filteredQuestions.length} question{filteredQuestions.length !== 1 ? 's' : ''} · Week {filterWeek}
+              {filteredQuestions.length} question{filteredQuestions.length !== 1 ? 's' : ''} · {filterDate}
             </span>
             <span className="text-[11px] font-bold text-slate-400">
               MCQ: {filteredQuestions.filter(q => q.question_type === 'mcq').length} ·{' '}
@@ -501,35 +532,37 @@ export const QuizManagerPanel: React.FC<QuizManagerPanelProps> = ({ user }) => {
 
               {/* Modal Form */}
               <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1">
-                {/* Week identifier */}
+                {/* Date identifier */}
                 <div>
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-wider mb-1.5 ml-1">
-                    Week Identifier
+                    Question Date <span className="text-rose-500">*</span>
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <input
-                      type="text"
-                      value={form.week_identifier}
-                      onChange={e => setForm(p => ({ ...p, week_identifier: e.target.value }))}
-                      placeholder="YYYY-WNN"
+                      type="date"
+                      value={form.date_identifier}
+                      onChange={e => setForm(p => ({ ...p, date_identifier: e.target.value }))}
                       required
-                      className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
+                      className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono min-w-[160px]"
                     />
                     <button
                       type="button"
-                      onClick={() => setForm(p => ({ ...p, week_identifier: currentWeek }))}
+                      onClick={() => setForm(p => ({ ...p, date_identifier: getTodayDate() }))}
                       className="px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-2xl text-xs hover:bg-emerald-100 transition-colors whitespace-nowrap"
                     >
-                      This Week
+                      Today
                     </button>
                     <button
                       type="button"
-                      onClick={() => setForm(p => ({ ...p, week_identifier: nextWeek }))}
+                      onClick={() => setForm(p => ({ ...p, date_identifier: getTomorrowDate() }))}
                       className="px-4 py-3 bg-blue-50 border border-blue-200 text-blue-700 font-bold rounded-2xl text-xs hover:bg-blue-100 transition-colors whitespace-nowrap"
                     >
-                      Next Week
+                      Tomorrow
                     </button>
                   </div>
+                  <p className="text-[10px] text-slate-400 mt-1 ml-1">
+                    Questions expire at 11:59 PM on this date. Set for future dates to schedule ahead.
+                  </p>
                 </div>
 
                 {/* Question Type */}

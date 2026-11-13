@@ -11,11 +11,17 @@ import {
   RefreshCw,
   ChevronRight,
   Zap,
-  Star
+  Star,
+  Infinity as InfinityIcon,
+  Flame,
 } from 'lucide-react';
-import { supabase } from '../supabaseClient';
 import { WeeklyLeaderboardEntry, User } from '../types';
-import { getIsoWeekIdentifier } from '../utils/quizScoring';
+
+interface PreviousWeekWinner {
+  user_name: string;
+  total_points: number;
+  week: string;
+}
 
 interface WeeklyLeaderboardProps {
   user: User | null;
@@ -24,20 +30,17 @@ interface WeeklyLeaderboardProps {
   onOpenQuiz?: () => void;
 }
 
-const RANK_STYLES: Record<number, { bg: string; text: string; icon: React.ReactNode }> = {
+const RANK_STYLES: Record<number, { bg: string; icon: React.ReactNode }> = {
   1: {
     bg: 'bg-gradient-to-br from-amber-400 to-yellow-500',
-    text: 'text-amber-800',
-    icon: <Crown className="w-4 h-4 text-amber-800 drop-shadow" />,
+    icon: <Crown className="w-4 h-4 text-amber-900 drop-shadow" />,
   },
   2: {
     bg: 'bg-gradient-to-br from-slate-300 to-slate-400',
-    text: 'text-slate-700',
     icon: <Medal className="w-4 h-4 text-slate-700" />,
   },
   3: {
     bg: 'bg-gradient-to-br from-amber-600 to-amber-700',
-    text: 'text-amber-100',
     icon: <Medal className="w-4 h-4 text-amber-100" />,
   },
 };
@@ -50,29 +53,27 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
 }) => {
   const [entries, setEntries] = useState<WeeklyLeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWeek] = useState(getIsoWeekIdentifier());
   const [myEntry, setMyEntry] = useState<WeeklyLeaderboardEntry | null>(null);
+  const [previousWeekWinner, setPreviousWeekWinner] = useState<PreviousWeekWinner | null>(null);
+  const [isSunday, setIsSunday] = useState(false);
+  const [showWinnerBanner, setShowWinnerBanner] = useState(true);
 
   const loadLeaderboard = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('weekly_leaderboard_view')
-        .select('*')
-        .order('rank', { ascending: true })
-        .limit(50);
-
-      if (error) throw error;
-
-      const rows: WeeklyLeaderboardEntry[] = data || [];
+      const res = await fetch('/api/quiz/leaderboard?limit=50');
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load leaderboard');
+      const data = await res.json();
+      const rows: WeeklyLeaderboardEntry[] = data.leaderboard || [];
       setEntries(rows);
-
+      setPreviousWeekWinner(data.previousWeekWinner ?? null);
+      setIsSunday(!!data.isSunday);
+      setShowWinnerBanner(true);
       if (user?.id) {
-        const mine = rows.find(e => e.user_id === user.id) ?? null;
-        setMyEntry(mine);
+        setMyEntry(rows.find(e => e.user_id === user.id) ?? null);
       }
     } catch (err) {
-      console.error('Error loading leaderboard:', err);
+      console.error('Leaderboard load error:', err);
     } finally {
       setLoading(false);
     }
@@ -127,12 +128,14 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-black tracking-tight">Weekly Leaderboard</h3>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/20">
-                  {currentWeek}
+                <h3 className="text-lg font-black tracking-tight">All-Time Leaderboard</h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/20 flex items-center gap-1">
+                  <InfinityIcon className="w-3 h-3" /> Cumulative
                 </span>
               </div>
-              <p className="text-xs text-amber-100 font-medium">Auto-resets every Sunday at midnight UTC</p>
+              <p className="text-xs text-amber-100 font-medium">
+                Quiz points + streak bonuses — resets never!
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -153,19 +156,61 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
           </div>
         </div>
 
-        {/* My Rank Sticky Banner */}
+        {/* Sunday: Previous Week Winner Banner */}
+        <AnimatePresence>
+          {isSunday && previousWeekWinner && showWinnerBanner && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white px-6 py-4 flex items-center gap-4 flex-shrink-0 relative overflow-hidden"
+            >
+              {/* Sparkle background effect */}
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_20%_50%,white,transparent_50%),radial-gradient(circle_at_80%_50%,white,transparent_50%)]" />
+              <motion.div
+                animate={{ rotate: [0, 10, -10, 0] }}
+                transition={{ repeat: Infinity, duration: 2 }}
+                className="text-3xl flex-shrink-0"
+              >
+                🏆
+              </motion.div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-widest text-purple-200 mb-0.5">
+                  Last Week's Champion · {previousWeekWinner.week}
+                </div>
+                <div className="text-base font-black text-white truncate">
+                  {previousWeekWinner.user_name}
+                </div>
+                <div className="text-sm font-bold text-purple-200">
+                  {previousWeekWinner.total_points.toLocaleString()} points
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWinnerBanner(false)}
+                className="p-1.5 hover:bg-white/10 rounded-full transition-colors flex-shrink-0"
+              >
+                <X className="w-3.5 h-3.5 text-purple-200" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* My rank sticky banner */}
         {myEntry && (
           <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-3 flex items-center gap-3 flex-shrink-0">
             <Star className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <span className="text-sm font-bold text-emerald-800">
-              Your rank this week:
-            </span>
-            <span className="ml-auto flex items-center gap-3 text-sm font-black text-emerald-700">
+            <span className="text-sm font-bold text-emerald-800">Your ranking:</span>
+            <span className="ml-auto flex items-center gap-2 text-sm font-black text-emerald-700 flex-wrap justify-end">
               <span>#{myEntry.rank}</span>
-              <span className="text-xs font-bold text-emerald-500">·</span>
+              <span className="text-emerald-400">·</span>
               <span>{myEntry.total_points.toLocaleString()} pts</span>
-              <span className="text-xs font-bold text-emerald-500">·</span>
-              <span>{myEntry.accuracy_rate}% accuracy</span>
+              <span className="text-emerald-400">·</span>
+              <span className="flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-orange-500" />
+                {myEntry.current_streak}d streak
+              </span>
+              <span className="text-emerald-400">·</span>
+              <span>{myEntry.accuracy_rate}% acc</span>
             </span>
           </div>
         )}
@@ -184,7 +229,7 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
               </div>
               <h4 className="text-lg font-bold text-slate-800 mb-2">No Rankings Yet</h4>
               <p className="text-sm text-slate-500 mb-6">
-                Be the first to complete <strong>{currentWeek}</strong>'s quiz and claim the top spot!
+                Be the first to complete a quiz and claim the top spot!
               </p>
               {onOpenQuiz && (
                 <button
@@ -197,23 +242,22 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
             </div>
           ) : (
             <div className="p-6 space-y-4">
-              {/* Top 3 Podium Cards */}
+              {/* Top 3 Podium */}
               {top3.length > 0 && (
-                <div className={`grid gap-3 mb-2 ${top3.length === 1 ? 'grid-cols-1' : top3.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                  {top3.map((entry) => {
+                <div className={`grid gap-3 mb-2 ${
+                  top3.length === 1 ? 'grid-cols-1' :
+                  top3.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                }`}>
+                  {top3.map(entry => {
                     const style = RANK_STYLES[entry.rank];
                     const isMe = entry.user_id === user?.id;
                     return (
                       <div
                         key={entry.user_id}
-                        className={`p-4 rounded-2xl text-center border-2 ${
-                          isMe ? 'border-emerald-400' : 'border-transparent'
-                        } ${
-                          entry.rank === 1
-                            ? 'bg-gradient-to-b from-amber-50 to-yellow-50 shadow-md'
-                            : entry.rank === 2
-                            ? 'bg-gradient-to-b from-slate-50 to-slate-100'
-                            : 'bg-gradient-to-b from-orange-50 to-amber-50'
+                        className={`p-4 rounded-2xl text-center border-2 ${isMe ? 'border-emerald-400' : 'border-transparent'} ${
+                          entry.rank === 1 ? 'bg-gradient-to-b from-amber-50 to-yellow-50 shadow-md'
+                          : entry.rank === 2 ? 'bg-gradient-to-b from-slate-50 to-slate-100'
+                          : 'bg-gradient-to-b from-orange-50 to-amber-50'
                         }`}
                       >
                         <div className={`w-10 h-10 rounded-2xl ${style?.bg} flex items-center justify-center mx-auto mb-2 shadow-lg`}>
@@ -226,58 +270,85 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
                           {entry.total_points.toLocaleString()}
                           <span className="text-xs font-bold text-slate-400 ml-1">pts</span>
                         </div>
+                        {/* Streak badge */}
+                        {entry.current_streak >= 3 && (
+                          <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-orange-100 rounded-full">
+                            <Flame className="w-3 h-3 text-orange-500" />
+                            <span className="text-[10px] font-black text-orange-700">{entry.current_streak}d</span>
+                          </div>
+                        )}
                         <div className="text-[10px] font-bold text-slate-400 mt-1">
                           {entry.accuracy_rate}% acc · {entry.correct_answers}/{entry.total_attempts} ✓
                         </div>
+                        {entry.streak_bonus_points > 0 && (
+                          <div className="text-[10px] font-bold text-purple-500 mt-0.5">
+                            +{entry.streak_bonus_points} streak bonus
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
               )}
 
-              {/* Rest of leaderboard table */}
+              {/* Full table */}
               {rest.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">All Rankings</p>
-                  {rest.map((entry) => {
+                  {rest.map(entry => {
                     const isMe = entry.user_id === user?.id;
                     return (
                       <div
                         key={entry.user_id}
                         className={`flex items-center gap-3 p-3 rounded-2xl border transition-colors ${
-                          isMe
-                            ? 'bg-emerald-50 border-emerald-200'
-                            : 'bg-slate-50 border-transparent hover:border-slate-200'
+                          isMe ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-transparent hover:border-slate-200'
                         }`}
                       >
                         {getRankDisplay(entry.rank)}
-
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-bold text-slate-800 truncate">
-                            {isMe ? `${entry.user_name} (You)` : entry.user_name}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-bold text-slate-800 truncate">
+                              {isMe ? `${entry.user_name} (You)` : entry.user_name}
+                            </span>
+                            {entry.current_streak >= 3 && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-100 rounded-full flex-shrink-0">
+                                <Flame className="w-2.5 h-2.5 text-orange-500" />
+                                <span className="text-[9px] font-black text-orange-700">{entry.current_streak}d</span>
+                              </span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-400">
-                              <Target className="w-3 h-3" />
-                              {entry.accuracy_rate}%
+                              <Target className="w-3 h-3" />{entry.accuracy_rate}%
                             </span>
                             <span className="text-[10px] text-slate-300">·</span>
                             <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-400">
-                              <Clock className="w-3 h-3" />
-                              {entry.average_time_seconds}s avg
+                              <Clock className="w-3 h-3" />{entry.average_time_seconds}s avg
                             </span>
                             <span className="text-[10px] text-slate-300">·</span>
                             <span className="text-[10px] font-semibold text-slate-400">
-                              {entry.correct_answers}/{entry.total_attempts} correct
+                              {entry.correct_answers}/{entry.total_attempts} ✓
                             </span>
+                            {entry.streak_bonus_points > 0 && (
+                              <>
+                                <span className="text-[10px] text-slate-300">·</span>
+                                <span className="text-[10px] font-semibold text-purple-500">
+                                  +{entry.streak_bonus_points} 🔥
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
-
                         <div className="text-right flex-shrink-0">
                           <div className="text-sm font-black text-slate-900">
                             {entry.total_points.toLocaleString()}
                             <span className="text-xs font-bold text-slate-400 ml-0.5">pts</span>
                           </div>
+                          {entry.streak_bonus_points > 0 && (
+                            <div className="text-[10px] text-slate-400">
+                              {entry.quiz_points} + <span className="text-purple-500">{entry.streak_bonus_points}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -292,7 +363,7 @@ export const WeeklyLeaderboard: React.FC<WeeklyLeaderboardProps> = ({
         <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between flex-shrink-0 bg-slate-50/60">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
             <TrendingUp className="w-4 h-4 text-emerald-500" />
-            <span>Historical records are preserved forever — only the view resets weekly.</span>
+            <span>Daily quizzes + 🔥 streaks build your all-time score.</span>
           </div>
           {onOpenQuiz && (
             <button

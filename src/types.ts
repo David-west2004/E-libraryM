@@ -71,17 +71,37 @@ export interface QuizAttempt {
 }
 
 export interface WeeklyLeaderboardEntry {
+  rank: number;
   user_id: string;
   user_name: string;
   email: string;
-  week_identifier: string;
+  quiz_points: number;
+  streak_bonus_points: number;
   total_points: number;
   total_attempts: number;
   correct_answers: number;
   accuracy_rate: number;
   total_time_taken_seconds: number;
   average_time_seconds: number;
-  rank: number;
+  current_streak: number;
+  longest_streak: number;
+}
+
+export interface UserStreak {
+  user_id: string;
+  current_streak: number;
+  longest_streak: number;
+  last_participation_date: string | null;
+  total_streak_bonus_points: number;
+  streak_3_awarded_week?: string | null;
+  streak_7_awarded_week?: string | null;
+}
+
+export interface QuizStreakInfo {
+  current_streak: number;
+  bonus_awarded: boolean;
+  bonus_points: number;
+  milestone: string | null;
 }
 
 export interface QuizSubmissionResult {
@@ -90,4 +110,12 @@ export interface QuizSubmissionResult {
   is_correct: boolean;
   points_earned: number;
   time_taken_seconds: number;
+  correct_answer?: string | null;
+  streak_info?: QuizStreakInfo;
+}
+
+export interface PreviousWeekWinner {
+  user_name: string;
+  total_points: number;
+  week: string;
 }
