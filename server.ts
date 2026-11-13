@@ -298,7 +298,8 @@ app.use((req, res, next) => {
         email: activeUser.email, 
         name: activeUser.name, 
         isAdmin: !!activeUser.is_admin,
-        isSuperAdmin: !!activeUser.is_super_admin
+        isSuperAdmin: !!activeUser.is_super_admin,
+        role: activeUser.role || (activeUser.is_super_admin ? 'super_admin' : activeUser.is_admin ? 'general_admin' : 'member')
       } });
     } catch (err: any) {
       console.error('[Login Error]:', err);
@@ -509,7 +510,8 @@ app.use((req, res, next) => {
           email: user.email,
           name: user.name,
           isAdmin: !!user.is_admin,
-          isSuperAdmin: !!user.is_super_admin
+          isSuperAdmin: !!user.is_super_admin,
+          role: user.role || (user.is_super_admin ? 'super_admin' : user.is_admin ? 'general_admin' : 'member')
         }
       });
     } catch (err: any) {
@@ -747,6 +749,43 @@ app.use((req, res, next) => {
         .update({ is_approved: isApproved })
         .eq('id', userId);
       
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update user role (quiz_admin, general_admin, super_admin, member)
+  app.post('/api/admin/update-role', async (req, res) => {
+    const { userId, role, requesterId } = req.body;
+    const VALID_ROLES = ['member', 'general_admin', 'quiz_admin', 'super_admin'];
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role value.' });
+    }
+    try {
+      const supabase = getSupabase();
+
+      // Verify requester is super_admin
+      const { data: requester } = await supabase
+        .from('users')
+        .select('is_super_admin, role')
+        .eq('id', requesterId)
+        .single();
+
+      if (!requester || (!requester.is_super_admin && requester.role !== 'super_admin')) {
+        return res.status(403).json({ error: 'Only Super Admins can update roles.' });
+      }
+
+      // Derive boolean flags from role for backward-compat
+      const is_admin = ['general_admin', 'quiz_admin', 'super_admin'].includes(role);
+      const is_super_admin = role === 'super_admin';
+
+      const { error } = await supabase
+        .from('users')
+        .update({ role, is_admin, is_super_admin })
+        .eq('id', userId);
+
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {

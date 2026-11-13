@@ -33,12 +33,17 @@ import {
   Info,
   Edit,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Sparkles,
+  Trophy
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Book, BookCategory, FilterState, User, RegistrationLink } from './types';
 import { INITIAL_BOOKS, DEPARTMENTS, LEVELS, getFallbackCover } from './constants';
 import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
+import { WeeklyQuizModal } from './components/WeeklyQuizModal';
+import { WeeklyLeaderboard } from './components/WeeklyLeaderboard';
+import { QuizManagerPanel } from './components/QuizManagerPanel';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -73,7 +78,7 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [adminLinks, setAdminLinks] = useState<RegistrationLink[]>([]);
-  const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload' | 'quiz'>('users');
   const [adminBookSearch, setAdminBookSearch] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [formCategory, setFormCategory] = useState<BookCategory>(BookCategory.ACADEMIC);
@@ -82,6 +87,10 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Quiz & Leaderboard State
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
 
   useEffect(() => {
     setSelectedCourse(null);
@@ -599,8 +608,7 @@ export default function App() {
     });
   };
 
-  const promoteToSuperAdmin = (userId: string, userName: string) => {
-    setConfirmModal({
+  const promoteToSuperAdmin = (userId: string, userName: string) => {    setConfirmModal({
       id: userId,
       type: 'promote-super',
       title: 'Promote to Super Admin',
@@ -626,6 +634,30 @@ export default function App() {
         }
       }
     });
+  };
+
+  // Update a user's role (super_admin only)
+  const updateUserRole = async (userId: string, userName: string, newRole: string) => {
+    if (!user?.isSuperAdmin && user?.role !== 'super_admin') {
+      showToast('Only Super Admins can change roles.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/update-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, role: newRole, requesterId: user?.id }),
+      });
+      if (res.ok) {
+        showToast(`${userName}'s role updated to ${newRole}`);
+        fetchAdminData();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to update role', 'error');
+      }
+    } catch {
+      showToast('Connection error', 'error');
+    }
   };
 
   const fetchAdminData = async () => {
@@ -1610,6 +1642,21 @@ export default function App() {
                   {view === 'admin' ? 'Exit Admin' : 'Admin Panel'}
                 </button>
               )}
+              {/* Quiz & Leaderboard Buttons */}
+              <button
+                onClick={() => setIsQuizOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+                Weekly Quiz
+              </button>
+              <button
+                onClick={() => setIsLeaderboardOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-amber-50 hover:text-amber-700 transition-all"
+              >
+                <Trophy className="w-4 h-4 text-amber-500" />
+                Leaderboard
+              </button>
               <div className="h-6 w-px bg-slate-200 mx-2" />
               <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
                 <button 
@@ -1674,6 +1721,16 @@ export default function App() {
             >
               Mass Upload (GDrive)
             </button>
+            {/* Quiz Manager tab — visible to quiz_admin and super_admin */}
+            {(user?.role === 'quiz_admin' || user?.role === 'super_admin' || user?.isSuperAdmin) && (
+              <button
+                onClick={() => setAdminTab('quiz')}
+                className={`whitespace-nowrap px-4 sm:px-6 py-3 rounded-2xl font-bold transition-all text-sm sm:text-base flex items-center gap-2 ${adminTab === 'quiz' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'}`}
+              >
+                <Sparkles className="w-4 h-4" />
+                Quiz Manager
+              </button>
+            )}
           </div>
 
           {adminTab === 'users' ? (
@@ -1727,11 +1784,27 @@ export default function App() {
                               {u.id === user?.id && (
                                 <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase">You</span>
                               )}
+                              {u.role === 'quiz_admin' && (
+                                <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 text-[10px] font-bold rounded uppercase">Quiz Admin</span>
+                              )}
                             </div>
                             <p className="text-sm text-slate-400 truncate">{u.email}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 sm:justify-end">
+                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                          {/* Role Dropdown — only super_admin can reassign */}
+                          {user?.isSuperAdmin && u.id !== user?.id && (
+                            <select
+                              value={u.role || (u.is_super_admin ? 'super_admin' : u.is_admin ? 'general_admin' : 'member')}
+                              onChange={e => updateUserRole(u.id, u.name, e.target.value)}
+                              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                            >
+                              <option value="member">Member</option>
+                              <option value="general_admin">General Admin</option>
+                              <option value="quiz_admin">Quiz Admin</option>
+                              <option value="super_admin">Super Admin</option>
+                            </select>
+                          )}
                           {u.id === user?.id ? (
                             <button 
                               onClick={demoteSelf}
@@ -1992,6 +2065,8 @@ export default function App() {
                 </form>
               </div>
             </div>
+          ) : adminTab === 'quiz' ? (
+            <QuizManagerPanel user={user} />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Add Book Form */}
@@ -2490,6 +2565,22 @@ export default function App() {
                   </button>
                 )}
 
+                {/* Quiz & Leaderboard mobile nav items */}
+                <button
+                  onClick={() => { setIsNavOpen(false); setIsQuizOpen(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all"
+                >
+                  <Sparkles className="w-5 h-5 text-emerald-500" />
+                  Weekly Quiz
+                </button>
+                <button
+                  onClick={() => { setIsNavOpen(false); setIsLeaderboardOpen(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-slate-600 hover:bg-amber-50 hover:text-amber-700 transition-all"
+                >
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  Leaderboard
+                </button>
+
                 <div className="pt-4 mt-4 border-t border-slate-100">
                   <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Sections</p>
                   <button 
@@ -2878,6 +2969,30 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* ── Weekly Quiz Modal ── */}
+      <AnimatePresence>
+        {isQuizOpen && (
+          <WeeklyQuizModal
+            user={user}
+            isOpen={isQuizOpen}
+            onClose={() => setIsQuizOpen(false)}
+            onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Weekly Leaderboard Modal ── */}
+      <AnimatePresence>
+        {isLeaderboardOpen && (
+          <WeeklyLeaderboard
+            user={user}
+            isOpen={isLeaderboardOpen}
+            onClose={() => setIsLeaderboardOpen(false)}
+            onOpenQuiz={() => setIsQuizOpen(true)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
