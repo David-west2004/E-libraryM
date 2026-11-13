@@ -1089,10 +1089,10 @@ export default function App() {
   const filteredBooks = useMemo(() => {
     return books.filter((book) => {
       const matchesSearch = 
-        book.title.toLowerCase().includes(filters.search.toLowerCase()) ||
-        book.author.toLowerCase().includes(filters.search.toLowerCase()) ||
-        book.courseCode?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        book.courseTitle?.toLowerCase().includes(filters.search.toLowerCase());
+        (book.title || '').toLowerCase().includes(filters.search.toLowerCase()) ||
+        (book.author || '').toLowerCase().includes(filters.search.toLowerCase()) ||
+        (book.courseCode || '').toLowerCase().includes(filters.search.toLowerCase()) ||
+        (book.courseTitle || '').toLowerCase().includes(filters.search.toLowerCase());
       
       const matchesCategory = filters.category === 'All' || book.category === filters.category;
       

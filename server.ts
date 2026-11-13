@@ -905,14 +905,68 @@ app.use((req, res, next) => {
   app.get('/api/books', async (req, res) => {
     try {
       const supabase = getSupabase();
-      const { data: books, error } = await supabase
+      
+      // 1. Fetch legacy/admin uploaded books
+      const { data: books, error: booksErr } = await supabase
         .from('books')
         .select('*')
         .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      res.json(books);
+
+      if (booksErr && !booksErr.message.includes('relation "books" does not exist')) {
+        console.warn('[Books API] Error querying books table:', booksErr.message);
+      }
+
+      // 2. Fetch Google Drive ingested materials from course_materials table
+      const { data: materials, error: matErr } = await supabase
+        .from('course_materials')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (matErr && !matErr.message.includes('relation "course_materials" does not exist')) {
+        console.warn('[Books API] Error querying course_materials table:', matErr.message);
+      }
+
+      // 3. Format course_materials to match the frontend Book interface
+      const normalizedMaterials = (materials || []).map((m: any) => {
+        const isNovel = m.category === 'Christian Novel' || m.course_code === 'GENERAL' || !m.course_code;
+        const category = isNovel ? 'Christian Novel' : (m.category || 'Academic');
+        const courseCode = isNovel ? '' : m.course_code;
+        const department = isNovel ? '' : m.department;
+
+        return {
+          id: m.id,
+          title: m.title,
+          author: '',
+          category: category,
+          department: department,
+          level: isNovel ? '' : m.level,
+          course_code: courseCode,
+          course_title: m.title,
+          material_type: m.material_type || 'Course Material',
+          download_url: m.file_url || m.download_url,
+          cover_url: `https://picsum.photos/seed/${encodeURIComponent(courseCode || 'book')}/400/600`,
+          description: isNovel ? 'Christian Novel' : `Course material for ${courseCode} (${department})`,
+          file_name: m.file_name,
+          file_size: m.file_size,
+          mime_type: m.mime_type,
+          created_at: m.created_at
+        };
+      });
+
+      // 4. Merge books and course_materials without duplicate download URLs
+      const combined = [...(books || [])];
+      const seenUrls = new Set(combined.map((b: any) => b.download_url).filter(Boolean));
+
+      for (const mat of normalizedMaterials) {
+        if (!seenUrls.has(mat.download_url)) {
+          combined.push(mat);
+          seenUrls.add(mat.download_url);
+        }
+      }
+
+      res.json(combined);
     } catch (err: any) {
+      console.error('[Books API Error]:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -979,6 +1033,63 @@ app.use((req, res, next) => {
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Sync storage endpoint for Admin Dashboard
+  app.post('/api/admin/sync-storage', async (req, res) => {
+    console.log('[Admin] Received sync-storage request');
+    try {
+      const supabase = getSupabase();
+      let importedCount = 0;
+
+      // 1. Fetch all records from course_materials to sync into books if missing
+      const { data: materials } = await supabase.from('course_materials').select('*');
+      const { data: existingBooks } = await supabase.from('books').select('download_url');
+      const existingUrls = new Set((existingBooks || []).map((b: any) => b.download_url).filter(Boolean));
+
+      if (materials && materials.length > 0) {
+        for (const m of materials) {
+          const downloadUrl = m.file_url || m.download_url;
+          if (downloadUrl && !existingUrls.has(downloadUrl)) {
+            const isNovel = m.category === 'Christian Novel' || m.course_code === 'GENERAL' || !m.course_code;
+            const category = isNovel ? 'Christian Novel' : (m.category || 'Academic');
+            const courseCode = isNovel ? '' : m.course_code;
+            const department = isNovel ? '' : m.department;
+
+            await supabase.from('books').insert({
+              id: uuidv4(),
+              title: m.title,
+              category: category,
+              department: department,
+              level: isNovel ? '' : m.level,
+              course_code: courseCode,
+              course_title: m.title,
+              material_type: m.material_type || 'Course Material',
+              download_url: downloadUrl,
+              cover_url: `https://picsum.photos/seed/${encodeURIComponent(courseCode || 'book')}/400/600`,
+              description: isNovel ? 'Christian Novel' : `Course material for ${courseCode}`,
+              file_name: m.file_name,
+              file_size: m.file_size,
+              mime_type: m.mime_type,
+              created_at: m.created_at || new Date().toISOString()
+            });
+
+            existingUrls.add(downloadUrl);
+            importedCount++;
+          }
+        }
+      }
+
+      console.log(`[Admin Sync Storage] Complete. Synced ${importedCount} materials into library.`);
+      res.json({
+        success: true,
+        count: importedCount,
+        message: `Storage sync complete! Added ${importedCount} new materials to library.`
+      });
+    } catch (err: any) {
+      console.error('[Admin Sync Storage Error]:', err);
       res.status(500).json({ error: err.message });
     }
   });
