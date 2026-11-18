@@ -33,12 +33,17 @@ import {
   Info,
   Edit,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Sparkles,
+  Trophy
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Book, BookCategory, FilterState, User, RegistrationLink } from './types';
 import { INITIAL_BOOKS, DEPARTMENTS, LEVELS, getFallbackCover } from './constants';
 import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
+import { WeeklyQuizModal } from './components/WeeklyQuizModal';
+import { WeeklyLeaderboard } from './components/WeeklyLeaderboard';
+import { QuizManagerPanel } from './components/QuizManagerPanel';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -71,9 +76,11 @@ export default function App() {
 
   // Admin State
   const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [adminLinks, setAdminLinks] = useState<RegistrationLink[]>([]);
-  const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload' | 'quiz'>('users');
   const [adminBookSearch, setAdminBookSearch] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [formCategory, setFormCategory] = useState<BookCategory>(BookCategory.ACADEMIC);
@@ -82,6 +89,10 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Quiz & Leaderboard State
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
 
   useEffect(() => {
     setSelectedCourse(null);
@@ -599,8 +610,7 @@ export default function App() {
     });
   };
 
-  const promoteToSuperAdmin = (userId: string, userName: string) => {
-    setConfirmModal({
+  const promoteToSuperAdmin = (userId: string, userName: string) => {    setConfirmModal({
       id: userId,
       type: 'promote-super',
       title: 'Promote to Super Admin',
@@ -628,29 +638,76 @@ export default function App() {
     });
   };
 
-  const fetchAdminData = async () => {
-    if (!user?.isAdmin) return;
-    
+  // Update a user's role (super_admin only)
+  const updateUserRole = async (userId: string, userName: string, newRole: string) => {
+    if (!user?.isSuperAdmin && user?.role !== 'super_admin') {
+      showToast('Only Super Admins can change roles.', 'error');
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/update-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, role: newRole, requesterId: user?.id }),
+      });
+      if (res.ok) {
+        showToast(`${userName}'s role updated to ${newRole}`);
+        fetchAdminData();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to update role', 'error');
+      }
+    } catch {
+      showToast('Connection error', 'error');
+    }
+  };
+
+  const fetchAdminData = async (currentUser = user) => {
+    if (!currentUser?.isAdmin) {
+      console.warn('[fetchAdminData] Skipped — user is not admin or not yet loaded.');
+      return;
+    }
+
     // Refresh user session to pick up superadmin status changes
     try {
-      const meRes = await fetch(`/api/auth/me?userId=${user.id}`);
+      const meRes = await fetch(`/api/auth/me?userId=${currentUser.id}`);
       if (meRes.ok) {
         const meData = await meRes.json();
         setUser(meData.user);
         localStorage.setItem('dlcf_user', JSON.stringify(meData.user));
+      } else {
+        console.error('[fetchAdminData] /api/auth/me returned non-ok:', meRes.status);
       }
     } catch (err) {
-      console.error('Failed to refresh session:', err);
+      console.error('[fetchAdminData] Failed to refresh session:', err);
     }
+
+    setIsMembersLoading(true);
+    setMembersError(null);
 
     try {
       const [usersRes, linksRes, booksRes] = await Promise.all([
-        fetch('/api/admin/users'),
+        fetch(`/api/admin/users?requesterId=${encodeURIComponent(currentUser.id)}`),
         fetch('/api/admin/links'),
         fetch('/api/books')
       ]);
 
-      if (usersRes.ok) setAllUsers(await usersRes.json());
+      if (usersRes.ok) {
+        const usersData = await usersRes.json();
+        if (Array.isArray(usersData)) {
+          setAllUsers(usersData);
+        } else {
+          console.error('[fetchAdminData] /api/admin/users returned non-array:', usersData);
+          setMembersError('Unexpected data format from server.');
+          setAllUsers([]);
+        }
+      } else {
+        const errBody = await usersRes.json().catch(() => ({}));
+        console.error('[fetchAdminData] /api/admin/users error:', usersRes.status, errBody);
+        setMembersError(`Failed to load members (${usersRes.status}): ${errBody.error || 'Unknown error'}`);
+        setAllUsers([]);
+      }
+
       if (linksRes.ok) setAdminLinks(await linksRes.json());
       
       if (booksRes.ok) {
@@ -672,13 +729,21 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch admin data:', err);
+      console.error('[fetchAdminData] Network or parse error:', err);
+      setMembersError('Could not connect to server. Check your network.');
+    } finally {
+      setIsMembersLoading(false);
     }
   };
 
+  // Trigger admin data fetch when the view switches to 'admin' OR when
+  // the user object becomes available (fixes the race condition where
+  // localStorage restore sets view='admin' before user is hydrated).
   useEffect(() => {
-    if (view === 'admin') fetchAdminData();
-  }, [view]);
+    if (view === 'admin' && user?.isAdmin) {
+      fetchAdminData(user);
+    }
+  }, [view, user?.id, user?.isAdmin]);
 
   const generateLink = async () => {
     try {
@@ -1610,6 +1675,21 @@ export default function App() {
                   {view === 'admin' ? 'Exit Admin' : 'Admin Panel'}
                 </button>
               )}
+              {/* Quiz & Leaderboard Buttons */}
+              <button
+                onClick={() => setIsQuizOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+                Weekly Quiz
+              </button>
+              <button
+                onClick={() => setIsLeaderboardOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-amber-50 hover:text-amber-700 transition-all"
+              >
+                <Trophy className="w-4 h-4 text-amber-500" />
+                Leaderboard
+              </button>
               <div className="h-6 w-px bg-slate-200 mx-2" />
               <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
                 <button 
@@ -1674,6 +1754,16 @@ export default function App() {
             >
               Mass Upload (GDrive)
             </button>
+            {/* Quiz Manager tab — visible to quiz_admin and super_admin */}
+            {(user?.role === 'quiz_admin' || user?.role === 'super_admin' || user?.isSuperAdmin) && (
+              <button
+                onClick={() => setAdminTab('quiz')}
+                className={`whitespace-nowrap px-4 sm:px-6 py-3 rounded-2xl font-bold transition-all text-sm sm:text-base flex items-center gap-2 ${adminTab === 'quiz' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-white text-slate-500 hover:bg-slate-50 border border-slate-200'}`}
+              >
+                <Sparkles className="w-4 h-4" />
+                Quiz Manager
+              </button>
+            )}
           </div>
 
           {adminTab === 'users' ? (
@@ -1689,9 +1779,21 @@ export default function App() {
                         </div>
                         <h2 className="text-lg font-bold text-slate-800">Member Directory</h2>
                       </div>
-                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full">
-                        {allUsers.length} Total
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {isMembersLoading && (
+                          <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                        )}
+                        <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full">
+                          {isMembersLoading ? '…' : `${allUsers.length} Total`}
+                        </span>
+                        <button
+                          onClick={() => fetchAdminData()}
+                          title="Refresh member list"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="relative">
@@ -1706,7 +1808,31 @@ export default function App() {
                     </div>
                   </div>
                   <div className="divide-y divide-slate-50 overflow-x-auto">
-                    {filteredUsers.length > 0 ? filteredUsers.map(u => (
+                    {isMembersLoading ? (
+                      /* Loading skeleton — prevents "No members found" flash */
+                      <div className="p-6 space-y-4">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="flex items-center gap-4 animate-pulse">
+                            <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3 bg-slate-200 rounded w-1/3" />
+                              <div className="h-3 bg-slate-100 rounded w-1/2" />
+                            </div>
+                            <div className="h-8 w-20 bg-slate-100 rounded-xl" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : membersError ? (
+                      <div className="p-12 text-center space-y-3">
+                        <p className="text-rose-500 text-sm font-semibold">{membersError}</p>
+                        <button
+                          onClick={() => fetchAdminData()}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" /> Retry
+                        </button>
+                      </div>
+                    ) : filteredUsers.length > 0 ? filteredUsers.map(u => (
                       <div key={u.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/50 transition-colors gap-4">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-bold ${u.is_super_admin ? 'bg-amber-100 text-amber-600' : u.is_admin ? 'bg-blue-100 text-blue-600' : u.is_approved ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
@@ -1727,11 +1853,27 @@ export default function App() {
                               {u.id === user?.id && (
                                 <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase">You</span>
                               )}
+                              {u.role === 'quiz_admin' && (
+                                <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 text-[10px] font-bold rounded uppercase">Quiz Admin</span>
+                              )}
                             </div>
                             <p className="text-sm text-slate-400 truncate">{u.email}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 sm:justify-end">
+                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                          {/* Role Dropdown — only super_admin can reassign */}
+                          {user?.isSuperAdmin && u.id !== user?.id && (
+                            <select
+                              value={u.role || (u.is_super_admin ? 'super_admin' : u.is_admin ? 'general_admin' : 'member')}
+                              onChange={e => updateUserRole(u.id, u.name, e.target.value)}
+                              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                            >
+                              <option value="member">Member</option>
+                              <option value="general_admin">General Admin</option>
+                              <option value="quiz_admin">Quiz Admin</option>
+                              <option value="super_admin">Super Admin</option>
+                            </select>
+                          )}
                           {u.id === user?.id ? (
                             <button 
                               onClick={demoteSelf}
@@ -1798,7 +1940,9 @@ export default function App() {
                       </div>
                     )) : (
                       <div className="p-12 text-center">
-                        <p className="text-slate-400 text-sm">No members found matching your search.</p>
+                        <p className="text-slate-400 text-sm">
+                          {userSearch ? 'No members match your search.' : 'No members found.'}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1992,6 +2136,8 @@ export default function App() {
                 </form>
               </div>
             </div>
+          ) : adminTab === 'quiz' ? (
+            <QuizManagerPanel user={user} />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Add Book Form */}
@@ -2490,6 +2636,22 @@ export default function App() {
                   </button>
                 )}
 
+                {/* Quiz & Leaderboard mobile nav items */}
+                <button
+                  onClick={() => { setIsNavOpen(false); setIsQuizOpen(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 transition-all"
+                >
+                  <Sparkles className="w-5 h-5 text-emerald-500" />
+                  Weekly Quiz
+                </button>
+                <button
+                  onClick={() => { setIsNavOpen(false); setIsLeaderboardOpen(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-slate-600 hover:bg-amber-50 hover:text-amber-700 transition-all"
+                >
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  Leaderboard
+                </button>
+
                 <div className="pt-4 mt-4 border-t border-slate-100">
                   <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Sections</p>
                   <button 
@@ -2878,6 +3040,30 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* ── Weekly Quiz Modal ── */}
+      <AnimatePresence>
+        {isQuizOpen && (
+          <WeeklyQuizModal
+            user={user}
+            isOpen={isQuizOpen}
+            onClose={() => setIsQuizOpen(false)}
+            onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Weekly Leaderboard Modal ── */}
+      <AnimatePresence>
+        {isLeaderboardOpen && (
+          <WeeklyLeaderboard
+            user={user}
+            isOpen={isLeaderboardOpen}
+            onClose={() => setIsLeaderboardOpen(false)}
+            onOpenQuiz={() => setIsQuizOpen(true)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
