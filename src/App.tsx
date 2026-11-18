@@ -76,6 +76,8 @@ export default function App() {
 
   // Admin State
   const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [adminLinks, setAdminLinks] = useState<RegistrationLink[]>([]);
   const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload' | 'quiz'>('users');
@@ -660,29 +662,52 @@ export default function App() {
     }
   };
 
-  const fetchAdminData = async () => {
-    if (!user?.isAdmin) return;
-    
+  const fetchAdminData = async (currentUser = user) => {
+    if (!currentUser?.isAdmin) {
+      console.warn('[fetchAdminData] Skipped — user is not admin or not yet loaded.');
+      return;
+    }
+
     // Refresh user session to pick up superadmin status changes
     try {
-      const meRes = await fetch(`/api/auth/me?userId=${user.id}`);
+      const meRes = await fetch(`/api/auth/me?userId=${currentUser.id}`);
       if (meRes.ok) {
         const meData = await meRes.json();
         setUser(meData.user);
         localStorage.setItem('dlcf_user', JSON.stringify(meData.user));
+      } else {
+        console.error('[fetchAdminData] /api/auth/me returned non-ok:', meRes.status);
       }
     } catch (err) {
-      console.error('Failed to refresh session:', err);
+      console.error('[fetchAdminData] Failed to refresh session:', err);
     }
+
+    setIsMembersLoading(true);
+    setMembersError(null);
 
     try {
       const [usersRes, linksRes, booksRes] = await Promise.all([
-        fetch('/api/admin/users'),
+        fetch(`/api/admin/users?requesterId=${encodeURIComponent(currentUser.id)}`),
         fetch('/api/admin/links'),
         fetch('/api/books')
       ]);
 
-      if (usersRes.ok) setAllUsers(await usersRes.json());
+      if (usersRes.ok) {
+        const usersData = await usersRes.json();
+        if (Array.isArray(usersData)) {
+          setAllUsers(usersData);
+        } else {
+          console.error('[fetchAdminData] /api/admin/users returned non-array:', usersData);
+          setMembersError('Unexpected data format from server.');
+          setAllUsers([]);
+        }
+      } else {
+        const errBody = await usersRes.json().catch(() => ({}));
+        console.error('[fetchAdminData] /api/admin/users error:', usersRes.status, errBody);
+        setMembersError(`Failed to load members (${usersRes.status}): ${errBody.error || 'Unknown error'}`);
+        setAllUsers([]);
+      }
+
       if (linksRes.ok) setAdminLinks(await linksRes.json());
       
       if (booksRes.ok) {
@@ -704,13 +729,21 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch admin data:', err);
+      console.error('[fetchAdminData] Network or parse error:', err);
+      setMembersError('Could not connect to server. Check your network.');
+    } finally {
+      setIsMembersLoading(false);
     }
   };
 
+  // Trigger admin data fetch when the view switches to 'admin' OR when
+  // the user object becomes available (fixes the race condition where
+  // localStorage restore sets view='admin' before user is hydrated).
   useEffect(() => {
-    if (view === 'admin') fetchAdminData();
-  }, [view]);
+    if (view === 'admin' && user?.isAdmin) {
+      fetchAdminData(user);
+    }
+  }, [view, user?.id, user?.isAdmin]);
 
   const generateLink = async () => {
     try {
@@ -1746,9 +1779,21 @@ export default function App() {
                         </div>
                         <h2 className="text-lg font-bold text-slate-800">Member Directory</h2>
                       </div>
-                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full">
-                        {allUsers.length} Total
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {isMembersLoading && (
+                          <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                        )}
+                        <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full">
+                          {isMembersLoading ? '…' : `${allUsers.length} Total`}
+                        </span>
+                        <button
+                          onClick={() => fetchAdminData()}
+                          title="Refresh member list"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="relative">
@@ -1763,7 +1808,31 @@ export default function App() {
                     </div>
                   </div>
                   <div className="divide-y divide-slate-50 overflow-x-auto">
-                    {filteredUsers.length > 0 ? filteredUsers.map(u => (
+                    {isMembersLoading ? (
+                      /* Loading skeleton — prevents "No members found" flash */
+                      <div className="p-6 space-y-4">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="flex items-center gap-4 animate-pulse">
+                            <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3 bg-slate-200 rounded w-1/3" />
+                              <div className="h-3 bg-slate-100 rounded w-1/2" />
+                            </div>
+                            <div className="h-8 w-20 bg-slate-100 rounded-xl" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : membersError ? (
+                      <div className="p-12 text-center space-y-3">
+                        <p className="text-rose-500 text-sm font-semibold">{membersError}</p>
+                        <button
+                          onClick={() => fetchAdminData()}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" /> Retry
+                        </button>
+                      </div>
+                    ) : filteredUsers.length > 0 ? filteredUsers.map(u => (
                       <div key={u.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/50 transition-colors gap-4">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-bold ${u.is_super_admin ? 'bg-amber-100 text-amber-600' : u.is_admin ? 'bg-blue-100 text-blue-600' : u.is_approved ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
@@ -1871,7 +1940,9 @@ export default function App() {
                       </div>
                     )) : (
                       <div className="p-12 text-center">
-                        <p className="text-slate-400 text-sm">No members found matching your search.</p>
+                        <p className="text-slate-400 text-sm">
+                          {userSearch ? 'No members match your search.' : 'No members found.'}
+                        </p>
                       </div>
                     )}
                   </div>

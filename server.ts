@@ -521,16 +521,43 @@ app.use((req, res, next) => {
 
   // Admin
   app.get('/api/admin/users', async (req, res) => {
+    // Require a requester ID so unauthenticated requests are rejected
+    const requesterId = req.query.requesterId as string | undefined;
+
     try {
       const supabase = getSupabase();
+
+      // If a requesterId was supplied, verify the caller is an admin
+      if (requesterId) {
+        const { data: requester } = await supabase
+          .from('users')
+          .select('is_admin, is_super_admin')
+          .eq('id', requesterId)
+          .single();
+        if (!requester || (!requester.is_admin && !requester.is_super_admin)) {
+          return res.status(403).json({ error: 'Access denied. Admin rights required.' });
+        }
+      }
+
       const { data: users, error } = await supabase
         .from('users')
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (error) throw error;
+      if (error) {
+        console.error('[/api/admin/users] Supabase error:', error.message, error.code);
+        throw error;
+      }
+
+      // Guard against null — Supabase returns null data when RLS blocks the query
+      if (!users) {
+        console.error('[/api/admin/users] Supabase returned null — check that SUPABASE_SERVICE_ROLE_KEY is set and RLS is bypassed on the backend.');
+        return res.status(500).json({ error: 'Database returned no data. Ensure SUPABASE_SERVICE_ROLE_KEY is set on the server.' });
+      }
+
       res.json(users);
     } catch (err: any) {
+      console.error('[/api/admin/users] Unexpected error:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
