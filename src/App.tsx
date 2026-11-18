@@ -1,9 +1,9 @@
-/**
+﻿/**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
@@ -50,6 +50,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLi
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  // authLoading: true until localStorage session has been restored AND
+  // the /api/auth/me round-trip is complete. Guards member fetching and
+  // role-sensitive action buttons from firing before state is hydrated.
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile' | 'reset-password'>('login');
   const [regToken, setRegToken] = useState<string | null>(null);
   
@@ -230,19 +234,59 @@ export default function App() {
     };
   }, []);
 
-  // Restore session from localStorage on mount
+  // Restore session from localStorage on mount.
+  // After restoring the cached user object we immediately re-validate it
+  // against /api/auth/me so that any role changes (e.g. a super_admin
+  // promotion that happened while the tab was closed) are picked up before
+  // any member-fetch or role-check runs.
   useEffect(() => {
     const savedUser = localStorage.getItem('dlcf_user');
-    if (savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
-        setUser(parsedUser);
-        setView(parsedUser.isAdmin ? 'admin' : 'library');
-      } catch (e) {
-        console.error('Failed to restore session:', e);
-        localStorage.removeItem('dlcf_user');
-      }
+    if (!savedUser) {
+      // No session — nothing to restore; auth is resolved immediately.
+      setAuthLoading(false);
+      return;
     }
+
+    let parsedUser: User | null = null;
+    try {
+      parsedUser = JSON.parse(savedUser);
+    } catch (e) {
+      console.error('Failed to restore session:', e);
+      localStorage.removeItem('dlcf_user');
+      setAuthLoading(false);
+      return;
+    }
+
+    if (!parsedUser) {
+      setAuthLoading(false);
+      return;
+    }
+
+    // Apply the cached user immediately so the UI renders the correct view,
+    // then refresh from the server to get the latest role / superadmin flags.
+    setUser(parsedUser);
+    setView(parsedUser.isAdmin ? 'admin' : 'library');
+
+    // Re-validate against the server
+    fetch(`/api/auth/me?userId=${parsedUser.id}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          const freshUser: User = data.user;
+          setUser(freshUser);
+          localStorage.setItem('dlcf_user', JSON.stringify(freshUser));
+          // Redirect if admin status changed while logged out
+          setView(freshUser.isAdmin ? 'admin' : 'library');
+        } else {
+          console.warn('[Session Restore] /api/auth/me returned non-ok:', res.status);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Session Restore] /api/auth/me network error:', err);
+      })
+      .finally(() => {
+        setAuthLoading(false);
+      });
   }, []);
 
   // API Calls
@@ -269,6 +313,7 @@ export default function App() {
         setUser(data.user);
         localStorage.setItem('dlcf_user', JSON.stringify(data.user));
         setView(data.user.isAdmin ? 'admin' : 'library');
+        setAuthLoading(false); // Fresh login — auth is now fully resolved
         showToast(`Welcome back, ${data.user.name}!`);
       } else {
         if (res.status === 403 && data.error === 'Access Revoked') {
@@ -640,7 +685,10 @@ export default function App() {
 
   // Update a user's role (super_admin only)
   const updateUserRole = async (userId: string, userName: string, newRole: string) => {
-    if (!user?.isSuperAdmin && user?.role !== 'super_admin') {
+    // A user is a Super Admin if either flag is set (guards against stale
+    // localStorage that may have one field but not the other).
+    const isSuperAdmin = !!(user?.isSuperAdmin || user?.role === 'super_admin');
+    if (!isSuperAdmin) {
       showToast('Only Super Admins can change roles.', 'error');
       return;
     }
@@ -668,20 +716,8 @@ export default function App() {
       return;
     }
 
-    // Refresh user session to pick up superadmin status changes
-    try {
-      const meRes = await fetch(`/api/auth/me?userId=${currentUser.id}`);
-      if (meRes.ok) {
-        const meData = await meRes.json();
-        setUser(meData.user);
-        localStorage.setItem('dlcf_user', JSON.stringify(meData.user));
-      } else {
-        console.error('[fetchAdminData] /api/auth/me returned non-ok:', meRes.status);
-      }
-    } catch (err) {
-      console.error('[fetchAdminData] Failed to refresh session:', err);
-    }
-
+    // Show skeleton immediately so the directory never flashes "0 Total" or
+    // "No members found" while the network request is in-flight.
     setIsMembersLoading(true);
     setMembersError(null);
 
@@ -739,11 +775,26 @@ export default function App() {
   // Trigger admin data fetch when the view switches to 'admin' OR when
   // the user object becomes available (fixes the race condition where
   // localStorage restore sets view='admin' before user is hydrated).
+  //
+  // Guard: only run AFTER auth has fully resolved (authLoading=false) so
+  // the first render with the cached user doesn't fire before /api/auth/me
+  // has returned the latest role flags. A ref is used to prevent the
+  // setUser() call inside fetchAdminData from causing an infinite loop.
+  const prevAdminFetchKey = useRef<string | null>(null);
   useEffect(() => {
-    if (view === 'admin' && user?.isAdmin) {
-      fetchAdminData(user);
-    }
-  }, [view, user?.id, user?.isAdmin]);
+    if (authLoading) return;                    // wait until auth is hydrated
+    if (view !== 'admin') return;
+    if (!user?.isAdmin) return;
+
+    // De-duplicate: only re-fetch when the view or the user identity changes,
+    // NOT when unrelated user fields (e.g. role string) are updated by the
+    // /api/auth/me call inside fetchAdminData itself.
+    const key = `${view}:${user.id}`;
+    if (prevAdminFetchKey.current === key) return;
+    prevAdminFetchKey.current = key;
+
+    fetchAdminData(user);
+  }, [view, user?.id, user?.isAdmin, authLoading]);
 
   const generateLink = async () => {
     try {
@@ -1789,7 +1840,8 @@ export default function App() {
                         <button
                           onClick={() => fetchAdminData()}
                           title="Refresh member list"
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                          disabled={isMembersLoading || authLoading}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
@@ -1808,8 +1860,8 @@ export default function App() {
                     </div>
                   </div>
                   <div className="divide-y divide-slate-50 overflow-x-auto">
-                    {isMembersLoading ? (
-                      /* Loading skeleton — prevents "No members found" flash */
+                    {(authLoading || isMembersLoading) ? (
+                      /* Loading skeleton — shown while auth hydrates OR data is fetching. Prevents "0 Total" / "No members found" flash on page load. */
                       <div className="p-6 space-y-4">
                         {[1, 2, 3].map(i => (
                           <div key={i} className="flex items-center gap-4 animate-pulse">
@@ -1862,11 +1914,12 @@ export default function App() {
                         </div>
                         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                           {/* Role Dropdown — only super_admin can reassign */}
-                          {user?.isSuperAdmin && u.id !== user?.id && (
+                          {(user?.isSuperAdmin || user?.role === 'super_admin') && u.id !== user?.id && (
                             <select
                               value={u.role || (u.is_super_admin ? 'super_admin' : u.is_admin ? 'general_admin' : 'member')}
                               onChange={e => updateUserRole(u.id, u.name, e.target.value)}
-                              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+                              disabled={authLoading}
+                              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <option value="member">Member</option>
                               <option value="general_admin">General Admin</option>
@@ -1884,10 +1937,11 @@ export default function App() {
                             </button>
                           ) : !u.is_admin ? (
                             <>
-                              {user?.isSuperAdmin && (
+                              {(user?.isSuperAdmin || user?.role === 'super_admin') && (
                                 <button 
                                   onClick={() => promoteToAdmin(u.id, u.name)}
-                                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/10"
+                                  disabled={authLoading}
+                                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-blue-600 text-white hover:bg-blue-700 shadow-blue-600/10 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <ShieldCheck className="w-4 h-4" />
                                   Invite Admin
@@ -1918,14 +1972,16 @@ export default function App() {
                             <div className="flex flex-1 sm:flex-none items-center gap-2">
                               <button 
                                 onClick={() => promoteToSuperAdmin(u.id, u.name)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-amber-600 text-white hover:bg-amber-700 shadow-amber-600/10"
+                                disabled={authLoading}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-amber-600 text-white hover:bg-amber-700 shadow-amber-600/10 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <ShieldCheck className="w-4 h-4" />
                                 Promote Super
                               </button>
                               <button 
                                 onClick={() => demoteAdmin(u.id, u.name)}
-                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-rose-50 text-rose-600 hover:bg-rose-100 shadow-rose-600/5"
+                                disabled={authLoading}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold rounded-xl transition-all shadow-lg bg-rose-50 text-rose-600 hover:bg-rose-100 shadow-rose-600/5 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <ShieldAlert className="w-4 h-4" />
                                 Revoke Admin
