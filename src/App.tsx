@@ -32,17 +32,195 @@ import {
   Info,
   Edit,
   Trash2,
-  RefreshCw,
-  Mail
+  RefreshCw
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { Book, BookCategory, FilterState, User } from './types';
 import { INITIAL_BOOKS, DEPARTMENTS, LEVELS, getFallbackCover } from './constants';
 import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
 
+// Slideshow / landing showcase images
+import slide1 from '../assets/20260611_193907.jpg';
+import slide2 from '../assets/20260611_200000.jpg';
+import slide3 from '../assets/InShot_20260614_104539506.jpg';
+import slide4 from '../assets/InShot_20260614_104633849.jpg';
+import slide5 from '../assets/InShot_20260622_200418401.jpg';
+import dlcfLogo from '../assets/dlcf.jpeg';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+const SLIDES = [
+  {
+    image: slide1,
+    title: "Access Academic Excellence",
+    description: "Explore a vast collection of academic books, lecture notes, and resources tailored for campus success."
+  },
+  {
+    image: slide2,
+    title: "Spiritual Growth & Guidance",
+    description: "Nurture your faith with spiritual books, messages, and publications readily available at your fingertips."
+  },
+  {
+    image: slide3,
+    title: "Past Questions Repository",
+    description: "Prepare thoroughly with organized past questions and solutions from various departments and levels."
+  },
+  {
+    image: slide4,
+    title: "Seamless Digital Reading",
+    description: "Read, study, and reference your books anytime, anywhere, with our fast and responsive reader."
+  },
+  {
+    image: slide5,
+    title: "Connect & Grow",
+    description: "Join the DLCF community in pursuing academic distinction and spiritual integrity."
+  }
+];
+
+function AuthSlideshow({
+  showText = true,
+  onContinue,
+  currentSlide,
+  onSlideChange,
+}: {
+  showText?: boolean;
+  onContinue?: () => void;
+  currentSlide?: number;
+  onSlideChange?: (index: number) => void;
+}) {
+  const [internalCurrent, setInternalCurrent] = useState(0);
+  const current = currentSlide !== undefined ? currentSlide : internalCurrent;
+  const setCurrent = (updater: number | ((prev: number) => number)) => {
+    const next = typeof updater === 'function' ? updater(current) : updater;
+    if (onSlideChange) {
+      onSlideChange(next);
+    } else {
+      setInternalCurrent(next);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (onSlideChange) {
+        onSlideChange((current + 1) % SLIDES.length);
+      } else {
+        setInternalCurrent((prev) => (prev + 1) % SLIDES.length);
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [current, onSlideChange]);
+
+  return (
+    <div className="relative w-full h-full overflow-hidden flex flex-col justify-end p-6 sm:p-10 md:p-12 text-white">
+      {/* Background Slides */}
+      <div className="absolute inset-0 z-0">
+        <AnimatePresence mode="wait">
+          <motion.img
+            key={current}
+            src={SLIDES[current].image}
+            initial={{ opacity: 0, scale: 1.05 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 1.2, ease: "easeInOut" }}
+            className="absolute inset-0 w-full h-full object-cover"
+            alt="Slideshow Background"
+          />
+        </AnimatePresence>
+        {/* Gradient Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-900/40 to-slate-950/20" />
+      </div>
+
+      {showText && (
+        <>
+          {/* Slide Text Content */}
+          <div className="relative z-10 max-w-lg mb-8">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={current}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.6, ease: "easeOut" }}
+              >
+                <span className="inline-block bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
+                  DLCF E-Library
+                </span>
+                <h2 className="text-3xl font-extrabold md:text-4xl leading-tight mb-4 tracking-tight drop-shadow-md">
+                  {SLIDES[current].title}
+                </h2>
+                <p className="text-slate-200 text-sm md:text-base leading-relaxed">
+                  {SLIDES[current].description}
+                </p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Slide Indicators & Continue Container */}
+          <div className="relative z-10 flex flex-col gap-6">
+            {/* Slide Indicators */}
+            <div className="flex gap-2">
+              {SLIDES.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => setCurrent(index)}
+                  className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
+                    index === current ? 'w-8 bg-emerald-50' : 'w-2.5 bg-white/40 hover:bg-white/60'
+                  }`}
+                  aria-label={`Go to slide ${index + 1}`}
+                />
+              ))}
+            </div>
+
+            {/* Continue Button (mobile only) */}
+            {onContinue && (
+              <button
+                onClick={onContinue}
+                className="w-full sm:max-w-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2 group transition-all cursor-pointer active:scale-95 text-sm uppercase tracking-wider"
+              >
+                <span>Continue</span>
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface AuthLayoutProps {
+  children: React.ReactNode;
+  showMobileAuth: boolean;
+  onContinueMobile: () => void;
+}
+
+function AuthLayout({ children, showMobileAuth, onContinueMobile }: AuthLayoutProps) {
+  return (
+    <div className="min-h-screen relative overflow-hidden bg-slate-950 flex flex-col md:grid md:grid-cols-12">
+      {/* Left Column: Full-height slideshow for md and up */}
+      <div className="hidden md:block md:col-span-7 lg:col-span-8 relative overflow-hidden h-screen">
+        <AuthSlideshow showText={true} />
+      </div>
+
+      {/* Right Column: Centered form container */}
+      <div className="col-span-12 md:col-span-5 lg:col-span-4 relative flex items-center justify-center p-4 sm:p-8 md:p-12 min-h-screen bg-slate-950 md:bg-slate-900/40 border-l border-slate-800/30">
+        {/* On mobile, render the slideshow as background */}
+        <div className="absolute inset-0 z-0 md:hidden">
+          <AuthSlideshow showText={!showMobileAuth} onContinue={!showMobileAuth ? onContinueMobile : undefined} />
+          {showMobileAuth && (
+            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[2px]" />
+          )}
+        </div>
+
+        {/* Form content */}
+        <div className={`relative z-10 w-full max-w-md ${showMobileAuth ? 'block' : 'hidden md:block'}`}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -50,7 +228,11 @@ export default function App() {
   // the /api/auth/me round-trip is complete. Guards member fetching and
   // role-sensitive action buttons from firing before state is hydrated.
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile' | 'reset-password'>('login');
+  const [view, setView] = useState<'landing' | 'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile' | 'reset-password'>('landing');
+  const [showMobileAuth, setShowMobileAuth] = useState(() => {
+    return localStorage.getItem('dlcf_slideshow_seen') === 'true';
+  });
+  const [landingSlide, setLandingSlide] = useState(0);
   
   // Library State
   const [books, setBooks] = useState<Book[]>([]);
@@ -225,7 +407,8 @@ export default function App() {
   useEffect(() => {
     const savedUser = localStorage.getItem('dlcf_user');
     if (!savedUser) {
-      // No session — nothing to restore; auth is resolved immediately.
+      // No session — show the landing page for unauthenticated visitors.
+      setView('landing');
       setAuthLoading(false);
       return;
     }
@@ -311,7 +494,6 @@ export default function App() {
     }
   };
 
-  const [registerSuccess, setRegisterSuccess] = useState(false);
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -334,8 +516,20 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        setRegisterSuccess(true);
         setShowPassword(false);
+        if (data.user) {
+          // Auto-login: persist session and go straight to the library
+          setUser(data.user);
+          localStorage.setItem('dlcf_user', JSON.stringify(data.user));
+          setAuthLoading(false);
+          showToast(`Welcome to DLCF E-Library, ${data.user.name}!`);
+          setView(data.user.isAdmin ? 'admin' : 'library');
+          fetchBooks();
+        } else {
+          // Edge case: Supabase returned success but no user (e.g. duplicate email needing confirmation)
+          showToast('Account created! Please log in with your credentials.');
+          setView('login');
+        }
       } else {
         showToast(data.error || 'Registration failed', 'error');
       }
@@ -371,7 +565,8 @@ export default function App() {
       localStorage.removeItem('dlcf_session');
       
       // 2. Application state
-      setView('login');
+      setView('landing');
+      setShowMobileAuth(false);
       setShowPassword(false);
       setIsNavOpen(false);
       setIsSidebarOpen(false);
@@ -415,7 +610,7 @@ export default function App() {
       // Even on error, clear local data
       localStorage.removeItem('dlcf_user');
       setUser(null);
-      setView('login');
+      setView('landing');
       showToast('Signed out', 'error');
     } finally {
       setLoading(false);
@@ -1263,18 +1458,136 @@ export default function App() {
 
   // --- Views ---
 
+  // ── Landing / Welcome page (default for unauthenticated visitors) ──
+  if (view === 'landing') {
+    return (
+      <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-slate-950">
+        <Toast />
+        {/* Full-screen slideshow */}
+        <div className="absolute inset-0 z-0">
+          <AuthSlideshow
+            showText={false}
+            currentSlide={landingSlide}
+            onSlideChange={setLandingSlide}
+          />
+          {/* Dark gradient for readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/55 to-slate-950/25" />
+        </div>
+
+        {/* Top bar */}
+        <div className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center shadow-lg">
+              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
+            </div>
+            <span className="text-white font-extrabold text-lg tracking-tight">
+              DLCF <span className="text-emerald-400">E-Library</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setView('login'); setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+              className="text-sm font-bold text-white/90 hover:text-white border border-white/25 hover:border-white/60 px-4 py-2 rounded-xl transition-all cursor-pointer backdrop-blur-sm"
+            >
+              Log In
+            </button>
+            <button
+              onClick={() => { setView('register'); setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+              className="hidden sm:inline-flex text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-950/40"
+            >
+              Create Account
+            </button>
+          </div>
+        </div>
+
+        {/* Hero content */}
+        <div className="relative z-10 flex-1 flex flex-col items-start justify-end pb-12 sm:pb-16 px-6 sm:px-10 md:px-16 max-w-3xl">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={landingSlide}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+            >
+              <span className="inline-block bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-4">
+                DLCF LASU OJO · Digital Library
+              </span>
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight mb-4 tracking-tight drop-shadow-lg">
+                {SLIDES[landingSlide].title}
+              </h1>
+              <p className="text-slate-200 text-base sm:text-lg leading-relaxed mb-8 max-w-xl">
+                {SLIDES[landingSlide].description}
+              </p>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* CTA Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+            <button
+              onClick={() => { setView('register'); setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 px-8 rounded-2xl shadow-xl shadow-emerald-900/40 flex items-center justify-center gap-2 group transition-all active:scale-95 text-sm sm:text-base cursor-pointer"
+            >
+              <span>Create Account</span>
+              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </button>
+            <button
+              onClick={() => { setView('login'); setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+              className="border-2 border-white/30 hover:border-white/60 text-white font-bold py-4 px-8 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 text-sm sm:text-base backdrop-blur-sm cursor-pointer"
+            >
+              Log In
+            </button>
+          </div>
+
+          {/* Interactive slide indicator dots & thumbnails */}
+          <div className="mt-8 flex items-center gap-4 flex-wrap">
+            <div className="flex gap-2">
+              {SLIDES.map((slide, i) => (
+                <button
+                  key={i}
+                  onClick={() => setLandingSlide(i)}
+                  className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
+                    i === landingSlide ? 'w-8 bg-emerald-400' : 'w-2.5 bg-white/40 hover:bg-white/70'
+                  }`}
+                  aria-label={`View showcase slide ${i + 1}: ${slide.title}`}
+                />
+              ))}
+            </div>
+            <div className="hidden sm:flex items-center gap-2 ml-2">
+              {SLIDES.map((slide, i) => (
+                <button
+                  key={i}
+                  onClick={() => setLandingSlide(i)}
+                  className={`w-10 h-10 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                    i === landingSlide ? 'border-emerald-400 scale-105 shadow-lg' : 'border-white/25 opacity-60 hover:opacity-100'
+                  }`}
+                  title={slide.title}
+                >
+                  <img src={slide.image} alt={slide.title} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (view === 'login') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <AuthLayout
+        showMobileAuth={showMobileAuth}
+        onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+      >
         <Toast />
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
+          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
-              <Library className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
+              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Welcome Back</h1>
             <p className="text-slate-500 text-sm">Sign in to access the DLCF E-Library</p>
@@ -1285,9 +1598,9 @@ export default function App() {
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Email Address</label>
               <div className="relative">
                 <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
+                <input
                   name="email"
-                  type="email" 
+                  type="email"
                   required
                   placeholder="admin@dlcf.org"
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
@@ -1298,9 +1611,9 @@ export default function App() {
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Password</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
+                <input
                   name="password"
-                  type={showPassword ? "text" : "password"} 
+                  type={showPassword ? "text" : "password"}
                   required
                   placeholder="••••••••"
                   className="w-full pl-11 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
@@ -1314,85 +1627,58 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <button 
+            <button
               type="submit"
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] cursor-pointer"
             >
               Sign In
             </button>
           </form>
-          
+
           <div className="mt-4 text-center">
-            <button 
+            <button
               onClick={() => setView('forgot-password')}
-              className="text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+              className="text-sm text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
             >
               Forgot Password?
             </button>
           </div>
-          
+
           <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-3">
             <p className="text-sm font-medium text-slate-600">New to DLCF E-Library?</p>
             <button
               onClick={() => { setView('register'); setShowPassword(false); }}
-              className="w-full border-2 border-emerald-600 text-emerald-700 py-3 rounded-2xl font-bold hover:bg-emerald-50 transition-all active:scale-[0.98]"
+              className="w-full border-2 border-emerald-600 text-emerald-700 py-3 rounded-2xl font-bold hover:bg-emerald-50 transition-all active:scale-[0.98] cursor-pointer"
             >
               Create Account
             </button>
+            <button
+              onClick={() => setView('landing')}
+              className="w-full text-xs text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              ← Back to Welcome Page
+            </button>
           </div>
         </motion.div>
-      </div>
+      </AuthLayout>
     );
   }
 
   if (view === 'register') {
-    // Show email-verification confirmation screen after successful signup
-    if (registerSuccess) {
-      return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-          <Toast />
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100 text-center"
-          >
-            <div className="bg-emerald-100 p-4 rounded-2xl inline-flex mb-6">
-              <Mail className="w-10 h-10 text-emerald-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-800 mb-3">Check Your Email</h1>
-            <p className="text-slate-600 mb-2">
-              We've sent a verification link to your email address.
-            </p>
-            <p className="text-slate-500 text-sm mb-6">
-              Please open the email from <strong>DLCF LASU OJO</strong> and click the link to verify your account before logging in.
-            </p>
-            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-8 text-left">
-              <p className="text-xs text-amber-700 font-medium">
-                📧 Can't find the email? Check your spam/junk folder. The verification link expires after 24 hours.
-              </p>
-            </div>
-            <button
-              onClick={() => { setRegisterSuccess(false); setView('login'); }}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
-            >
-              Back to Login
-            </button>
-          </motion.div>
-        </div>
-      );
-    }
-
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <AuthLayout
+        showMobileAuth={showMobileAuth}
+        onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+      >
         <Toast />
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
+          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
-              <UserIcon className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
+              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Create Account</h1>
             <p className="text-slate-500 text-sm text-center">Join the DLCF LASU OJO community</p>
@@ -1401,9 +1687,9 @@ export default function App() {
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Full Name</label>
-              <input 
+              <input
                 name="name"
-                type="text" 
+                type="text"
                 required
                 placeholder="John Doe"
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
@@ -1411,9 +1697,9 @@ export default function App() {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Email Address</label>
-              <input 
+              <input
                 name="email"
-                type="email" 
+                type="email"
                 required
                 placeholder="john@example.com"
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
@@ -1423,9 +1709,9 @@ export default function App() {
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Password</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
+                <input
                   name="password"
-                  type={showPassword ? "text" : "password"} 
+                  type={showPassword ? "text" : "password"}
                   required
                   minLength={6}
                   placeholder="At least 6 characters"
@@ -1440,38 +1726,49 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <button 
+            <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Account'}
             </button>
           </form>
-          
-          <button 
-            onClick={() => { setView('login'); setShowPassword(false); }}
-            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
-          >
-            Already have an account? Sign In
-          </button>
+
+          <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center">
+            <button
+              onClick={() => { setView('login'); setShowPassword(false); }}
+              className="w-full text-sm text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
+            >
+              Already have an account? Sign In
+            </button>
+            <button
+              onClick={() => setView('landing')}
+              className="w-full text-xs text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              ← Back to Welcome Page
+            </button>
+          </div>
         </motion.div>
-      </div>
+      </AuthLayout>
     );
   }
 
   if (view === 'forgot-password') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <AuthLayout
+        showMobileAuth={showMobileAuth}
+        onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+      >
         <Toast />
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
+          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
-              <ShieldCheck className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 rounded-2xl mb-4 shadow-lg overflow-hidden border-2 border-emerald-500 bg-white flex items-center justify-center">
+              <img src={dlcfLogo} alt="DLCF Logo" className="w-full h-full object-cover" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Recover Password</h1>
             <p className="text-slate-500 text-sm text-center">Enter your email to receive a secure password reset link</p>
@@ -1480,42 +1777,45 @@ export default function App() {
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Email Address</label>
-              <input 
+              <input
                 name="email"
-                type="email" 
+                type="email"
                 required
                 placeholder="john@example.com"
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
               />
             </div>
-            <button 
+            <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Recovery Link'}
             </button>
           </form>
-          
-          <button 
+
+          <button
             onClick={() => setView('login')}
-            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
           >
             Back to Login
           </button>
         </motion.div>
-      </div>
+      </AuthLayout>
     );
   }
 
   if (view === 'reset-password') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <AuthLayout
+        showMobileAuth={showMobileAuth}
+        onContinueMobile={() => { setShowMobileAuth(true); localStorage.setItem('dlcf_slideshow_seen', 'true'); }}
+      >
         <Toast />
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100"
+          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl shadow-slate-200/40 p-8 border border-slate-100/50"
         >
           <div className="flex flex-col items-center mb-8">
             <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
@@ -1529,16 +1829,16 @@ export default function App() {
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">New Password</label>
               <div className="relative">
-                <input 
+                <input
                   name="password"
-                  type={showPassword ? "text" : "password"} 
+                  type={showPassword ? "text" : "password"}
                   required
                   minLength={6}
                   placeholder="At least 6 characters"
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all pr-12"
                 />
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors"
                 >
@@ -1550,16 +1850,16 @@ export default function App() {
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">Confirm New Password</label>
               <div className="relative">
-                <input 
+                <input
                   name="confirmPassword"
-                  type={showPassword ? "text" : "password"} 
+                  type={showPassword ? "text" : "password"}
                   required
                   minLength={6}
                   placeholder="Re-enter your new password"
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all pr-12"
                 />
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 transition-colors"
                 >
@@ -1568,23 +1868,23 @@ export default function App() {
               </div>
             </div>
 
-            <button 
+            <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50"
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Update Password'}
             </button>
           </form>
-          
-          <button 
+
+          <button
             onClick={() => { setView('login'); setShowPassword(false); }}
-            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
+            className="w-full mt-4 text-sm text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
           >
             Back to Login
           </button>
         </motion.div>
-      </div>
+      </AuthLayout>
     );
   }
 

@@ -358,7 +358,8 @@ app.use((req, res, next) => {
 
       const authUserId = authData?.user?.id;
       if (!authUserId) {
-        // Supabase returned success but no user — most likely a duplicate that needs confirmation
+        // Supabase returned success but no user — most likely a duplicate that needs confirmation.
+        // Return success without a user object so the client can prompt the user to log in.
         return res.json({ success: true });
       }
 
@@ -383,7 +384,18 @@ app.use((req, res, next) => {
         // Don't fail — Supabase Auth signup succeeded; the row can be synced later
       }
 
-      res.json({ success: true });
+      // Return the new user object so the client can auto-login immediately
+      res.json({
+        success: true,
+        user: {
+          id: authUserId,
+          email,
+          name,
+          isAdmin: false,
+          isSuperAdmin: false,
+          role: 'member',
+        },
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Registration failed' });
     }
