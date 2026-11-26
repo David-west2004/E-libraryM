@@ -19,7 +19,6 @@ import {
   User as UserIcon,
   LogOut,
   ShieldCheck,
-  Link as LinkIcon,
   CheckCircle2,
   Clock,
   Copy,
@@ -33,10 +32,11 @@ import {
   Info,
   Edit,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Mail
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { Book, BookCategory, FilterState, User, RegistrationLink } from './types';
+import { Book, BookCategory, FilterState, User } from './types';
 import { INITIAL_BOOKS, DEPARTMENTS, LEVELS, getFallbackCover } from './constants';
 import { supabase, getResetPasswordRedirectUrl } from './supabaseClient';
 
@@ -51,7 +51,6 @@ export default function App() {
   // role-sensitive action buttons from firing before state is hydrated.
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<'login' | 'register' | 'library' | 'admin' | 'forgot-password' | 'profile' | 'reset-password'>('login');
-  const [regToken, setRegToken] = useState<string | null>(null);
   
   // Library State
   const [books, setBooks] = useState<Book[]>([]);
@@ -79,7 +78,7 @@ export default function App() {
   const [isMembersLoading, setIsMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
-  const [adminLinks, setAdminLinks] = useState<RegistrationLink[]>([]);
+  const [adminLinks, setAdminLinks] = useState<any[]>([]);
   const [adminTab, setAdminTab] = useState<'users' | 'books' | 'mass-upload'>('users');
   const [adminBookSearch, setAdminBookSearch] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
@@ -183,16 +182,6 @@ export default function App() {
 
   useEffect(() => {
     fetchBooks();
-  }, []);
-
-  // Check for registration token in URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      setRegToken(token);
-      setView('register');
-    }
   }, []);
 
   // Listen for Supabase Auth PASSWORD_RECOVERY and capture recovery token from URL hash/query
@@ -322,31 +311,38 @@ export default function App() {
     }
   };
 
+  const [registerSuccess, setRegisterSuccess] = useState(false);
+
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email');
-    const password = formData.get('password');
-    const name = formData.get('name');
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const name = formData.get('name') as string;
 
+    if (password.length < 6) {
+      showToast('Password must be at least 6 characters long', 'error');
+      return;
+    }
+
+    setLoading(true);
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name, token: regToken }),
+        body: JSON.stringify({ email, password, name }),
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('Registration successful! Please wait for admin approval.');
-        setView('login');
+        setRegisterSuccess(true);
         setShowPassword(false);
-        setRegToken(null);
-        window.history.replaceState({}, '', window.location.pathname);
       } else {
-        showToast(data.error, 'error');
+        showToast(data.error || 'Registration failed', 'error');
       }
     } catch (err) {
-      showToast('Registration failed', 'error');
+      showToast('Registration failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -387,7 +383,6 @@ export default function App() {
       // 3. Clear all data
       setBooks([]);
       setAllUsers([]);
-      setAdminLinks([]);
       setFilters({
         search: '',
         category: BookCategory.ACADEMIC,
@@ -1336,10 +1331,14 @@ export default function App() {
             </button>
           </div>
           
-          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400">
-              Need access? Contact your DLCF admin for a registration link.
-            </p>
+          <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-3">
+            <p className="text-sm font-medium text-slate-600">New to DLCF E-Library?</p>
+            <button
+              onClick={() => { setView('register'); setShowPassword(false); }}
+              className="w-full border-2 border-emerald-600 text-emerald-700 py-3 rounded-2xl font-bold hover:bg-emerald-50 transition-all active:scale-[0.98]"
+            >
+              Create Account
+            </button>
           </div>
         </motion.div>
       </div>
@@ -1347,6 +1346,42 @@ export default function App() {
   }
 
   if (view === 'register') {
+    // Show email-verification confirmation screen after successful signup
+    if (registerSuccess) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <Toast />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-8 border border-slate-100 text-center"
+          >
+            <div className="bg-emerald-100 p-4 rounded-2xl inline-flex mb-6">
+              <Mail className="w-10 h-10 text-emerald-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800 mb-3">Check Your Email</h1>
+            <p className="text-slate-600 mb-2">
+              We've sent a verification link to your email address.
+            </p>
+            <p className="text-slate-500 text-sm mb-6">
+              Please open the email from <strong>DLCF LASU OJO</strong> and click the link to verify your account before logging in.
+            </p>
+            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-8 text-left">
+              <p className="text-xs text-amber-700 font-medium">
+                📧 Can't find the email? Check your spam/junk folder. The verification link expires after 24 hours.
+              </p>
+            </div>
+            <button
+              onClick={() => { setRegisterSuccess(false); setView('login'); }}
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
+            >
+              Back to Login
+            </button>
+          </motion.div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Toast />
@@ -1359,8 +1394,8 @@ export default function App() {
             <div className="bg-emerald-600 p-3 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
               <UserIcon className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">Member Registration</h1>
-            <p className="text-slate-500 text-sm text-center">Create your account to join the community</p>
+            <h1 className="text-2xl font-bold text-slate-800">Create Account</h1>
+            <p className="text-slate-500 text-sm text-center">Join the DLCF LASU OJO community</p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
@@ -1392,7 +1427,8 @@ export default function App() {
                   name="password"
                   type={showPassword ? "text" : "password"} 
                   required
-                  placeholder="••••••••"
+                  minLength={6}
+                  placeholder="At least 6 characters"
                   className="w-full pl-11 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
                 <button
@@ -1406,9 +1442,10 @@ export default function App() {
             </div>
             <button 
               type="submit"
-              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98]"
+              disabled={loading}
+              className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              Register Account
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Account'}
             </button>
           </form>
           
@@ -1789,11 +1826,10 @@ export default function App() {
           </div>
 
           {adminTab === 'users' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Member Management */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex flex-col gap-4">
+            <div className="space-y-6">
+              {/* Member Directory — full width */}
+              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="bg-blue-100 p-2 rounded-xl">
@@ -1972,61 +2008,6 @@ export default function App() {
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
-
-              {/* Registration Links */}
-              <div className="space-y-6">
-                <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-blue-100 p-2 rounded-xl">
-                        <LinkIcon className="w-5 h-5 text-blue-600" />
-                      </div>
-                      <h2 className="text-lg font-bold text-slate-800">Registration Links</h2>
-                    </div>
-                    <button 
-                      onClick={generateLink}
-                      className="p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <div className="p-6 space-y-4">
-                    {adminLinks.length > 0 ? adminLinks.map(link => (
-                      <div key={link.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-full">Multi-use Link</span>
-                          <div className="flex items-center gap-1">
-                            <button 
-                              onClick={() => {
-                                const url = `${window.location.origin}/?token=${link.token}`;
-                                navigator.clipboard.writeText(url);
-                                showToast('Link copied to clipboard!');
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-emerald-600 transition-colors"
-                              title="Copy Link"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => deleteLink(link.id)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                              title="Revoke Link"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-xs font-mono text-slate-500 break-all line-clamp-1">{link.token}</p>
-                      </div>
-                    )) : (
-                      <div className="text-center py-8">
-                        <p className="text-slate-400 text-sm">No active links. Generate one to invite members.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           ) : adminTab === 'mass-upload' ? (

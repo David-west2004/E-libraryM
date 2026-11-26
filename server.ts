@@ -331,35 +331,58 @@ app.use((req, res, next) => {
   });
 
   app.post('/api/auth/register', async (req, res) => {
-    const { email, password, name, token } = req.body;
-    
+    const { email, password, name } = req.body;
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Full name, email, and password are required.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+
     try {
       const supabase = getSupabase();
-      
-      // Validate token
-      const { data: link, error: linkError } = await supabase
-        .from('registration_links')
-        .select('*')
-        .eq('token', token)
-        .single();
 
-      if (linkError || !link) {
-        return res.status(400).json({ error: 'Invalid registration link' });
+      // Sign up via Supabase Auth — triggers the confirmation email automatically
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: name },
+        },
+      });
+
+      if (authError) {
+        return res.status(400).json({ error: authError.message || 'Registration failed' });
       }
 
-      // Hash the password securely with bcryptjs (10 salt rounds)
+      const authUserId = authData?.user?.id;
+      if (!authUserId) {
+        // Supabase returned success but no user — most likely a duplicate that needs confirmation
+        return res.json({ success: true });
+      }
+
+      // Upsert a matching row in our custom `users` table with default Member role
       const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Create user (Automatically approved)
-      const { error: regError } = await supabase
+      const { error: dbError } = await supabase
         .from('users')
-        .insert([{ id: uuidv4(), email, password: hashedPassword, name, is_approved: true, is_admin: false }]);
-      
-      if (regError) throw regError;
+        .upsert([
+          {
+            id: authUserId,
+            email,
+            password: hashedPassword,
+            name,
+            is_approved: true,
+            is_admin: false,
+            role: 'member',
+          },
+        ], { onConflict: 'id' });
 
-      // Send welcome email (async)
-      sendWelcomeEmail(email, name);
-      
+      if (dbError) {
+        console.error('[Register] DB upsert error (non-fatal):', dbError.message);
+        // Don't fail — Supabase Auth signup succeeded; the row can be synced later
+      }
+
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Registration failed' });
